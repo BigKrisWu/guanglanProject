@@ -1,3 +1,4 @@
+
 public class FileDownloaderServiceImpl implements FileDownloadService {
     private static final Logger LOGGER = LoggerFactory.getLogger(FileDownloaderServiceImpl.class);
 
@@ -179,7 +180,7 @@ public class FileDownloaderServiceImpl implements FileDownloadService {
     private void downloadFile(SftpClient sftp, String remoteFilePath, String localFilePath) {
         try {
             try (InputStream inputStream = sftp.read(remoteFilePath)) {
-                Files.copy(inputStream, FileSecUtils.getPath(localFilePath), StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(inputStream, Paths.get(localFilePath), StandardCopyOption.REPLACE_EXISTING);
                 LOGGER.warn("Successfully downloaded ");
             }
         } catch (IOException e) {
@@ -188,7 +189,7 @@ public class FileDownloaderServiceImpl implements FileDownloadService {
     }
 
     private void checkAndCreateDirectory(String directoryPath) {
-        Path path = FileSecUtils.getPath(directoryPath);
+        Path path = Paths.get(directoryPath);
         if (!Files.exists(path)) {
             try {
                 Files.createDirectories(path);
