@@ -1,1 +1,201 @@
-# guanglanProject
+public class FileDownloaderServiceImpl implements FileDownloadService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(FileDownloaderServiceImpl.class);
+
+    private static String remoteIp;
+
+    private static String remoteDir;
+
+    private static int port;
+
+    private static String username;
+
+    private static String password;
+
+    private static Set<String> fileSet;
+
+    private static String filesDirectory;
+
+    private static Pattern dirPattern;
+
+    private static int maxDirSize;
+
+    private static String srcLocation;
+
+    private static String colLocation;
+
+    private SshClient sshClient;
+
+    private ClientSession session;
+
+    public static void fetchConfigFromPage() {
+        Map<String, String> parameter = ServiceUtil.getNebulaConfig();
+        remoteIp = parameter.get("remoteIp");
+        remoteDir = parameter.get("remoteDir");
+        port = Integer.parseInt(parameter.get("port"));
+        username = parameter.get("username");
+        password = parameter.get("password");
+        srcLocation = parameter.get("srcDirectory");
+        colLocation = parameter.get("colDirectory");
+        fileSet = new HashSet<>(Arrays.asList(parameter.get("fileSet").split(",")));
+        filesDirectory = parameter.get("filesDirectory");
+        maxDirSize = Integer.parseInt(parameter.get("maxDirSize"));
+        dirPattern = Pattern.compile(parameter.get("directoryPattern"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void init() {
+        // 密钥交换算法符合安全要求，diffie-hellman-group14-sha1、diffie-hellman-group-exchange-sha1 工程已舍弃
+        // MAC认证算法 BaseBuilder.DEFAULT_MAC_PREFERENCE 默认使用hmac-sha2-256-etm、hmac-sha2-512-etm、hmac-sha1-etm
+        // hmac-sha2-256、hmac-sha2-512、hmac-sha1
+        final List<String> macs = Collections.unmodifiableList(Arrays.asList("hmac-sha2-512", "hmac-sha2-256"));
+        // 加密模式算法, BaseBuilder.DEFAULT_CIPHERS_PREFERENCE 默认使用chacha20-poly1305、aes128-ctr、aes192-ctr、aes256-ctr
+        // aes128-gcm、aes256-gcm、aes128-cbc、aes192-cbc、aes256-cbc
+        // 默认存在aes128-cbc模式(该算法不推荐)，自定义设置
+        final List<String> ciphers = Collections.unmodifiableList(
+            Arrays.asList("aes128-ctr", "aes192-ctr", "aes256-ctr"));
+        // 主机公钥算法
+        final List<BuiltinSignatures> defaultSshSignature = Collections.unmodifiableList(
+            Arrays.asList(BuiltinSignatures.ed25519_cert, BuiltinSignatures.ed25519, BuiltinSignatures.rsaSHA512,
+                BuiltinSignatures.rsaSHA256));
+        // 完成客户端初始化
+        sshClient = SshClient.setUpDefaultClient();
+        // 密钥交换算法默认已满足安全要求, BaseBuilder中的DEFAULT_KEX_PREFERENCE
+        // 设置MAC认证
+        sshClient.setMacFactoriesNames(macs);
+        // 设置加密模式
+        sshClient.setCipherFactoriesNames(ciphers);
+        // 设置签名算法,主机公钥算法HostKeyAlgorithms，密码算法规范
+        sshClient.setSignatureFactories((List) NamedFactory.setUpBuiltinFactories(false, defaultSshSignature));
+        sshClient.start();
+    }
+
+    @Override
+    public void downloadFiles() {
+        checkAndCreateDirectory(srcLocation);
+        checkAndCreateDirectory(colLocation);
+
+        init();
+        try {
+            session = sshClient.connect(username, remoteIp, port).verify().getSession();
+            session.addPasswordIdentity(password);
+            session.auth().verify();
+            SftpClientFactory factory = SftpClientFactory.instance();
+            SftpClient sftp = factory.createSftpClient(session);
+            List<String> recentDirs = getRecentDirs(sftp, remoteDir, maxDirSize);
+            processFiles(sftp, recentDirs);
+        } catch (Exception e) {
+            LOGGER.error("sftp client connect error.");
+        } finally {
+            sshClient.stop();
+        }
+    }
+
+    private List<String> getRecentDirs(SftpClient sftp, String remoteDir, int maxDirSize) throws IOException {
+        Iterable<SftpClient.DirEntry> dirEntries = sftp.readDir(remoteDir);
+        List<String> recentDirs = new ArrayList<>();
+        for (SftpClient.DirEntry entry : dirEntries) {
+            if (entry.getAttributes().isDirectory()) {
+                String dirName = entry.getFilename();
+                if (dirPattern.matcher(dirName).matches()) {
+                    try {
+                        sftp.stat(remoteDir + File.separator + dirName + File.separator + filesDirectory);
+                        recentDirs.add(dirName);
+                    } catch (SftpException e) {
+                        LOGGER.error("Skipping directory as 'files' subdirectory does not exist: " + dirName);
+                        continue;
+                    }
+                }
+            }
+        }
+        recentDirs.sort(Collections.reverseOrder());
+        return recentDirs.subList(0, Math.min(recentDirs.size(), maxDirSize));
+    }
+
+    private void processFiles(SftpClient sftp, List<String> recentDirs) throws IOException {
+        Set<String> matchedPatterns = new HashSet<>();
+        for (String dir : recentDirs) {
+            Iterable<SftpClient.DirEntry> files = sftp.readDir(remoteDir + File.separator + dir + File.separator + filesDirectory );
+            for (SftpClient.DirEntry entry : files) {
+                String filename = entry.getFilename();
+                for (String pattern : fileSet) {
+                    if (filename.contains(pattern)) {
+                        String filePath =
+                            remoteDir + File.separator + dir + File.separator + filesDirectory + File.separator + filename;
+                        SftpClient.Attributes attrs = sftp.stat(filePath);
+                        if (attrs.getSize() > 0) {
+                            if (hasDataLines(sftp, filePath)) {
+                                matchedPatterns.add(pattern);
+                                handleFile(sftp, dir, filename);
+                                break; // 匹配到一个模式后不需要继续检查其他模式
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        fileSet.removeAll(matchedPatterns); // 从fileSet中移除已匹配的模式
+    }
+
+    private boolean hasDataLines(SftpClient sftp, String filePath) throws IOException {
+        try (InputStream in = sftp.read(filePath)) {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+            reader.readLine(); // 跳过表头
+            String secondLine = reader.readLine();
+            return secondLine != null && !secondLine.trim().isEmpty();
+        }
+    }
+
+    private void handleFile(SftpClient sftp, String dir, String filename) {
+        String baseFilename = filename.replaceAll("(_\\d{14})\\.csv$", "");
+        String timestamp = filename.replaceAll("^.*(_\\d{14})\\.csv$", "$1");
+        File[] localFiles = FileSecUtils.getFile(srcLocation)
+            .listFiles((localDir, name) -> name.startsWith(baseFilename));
+
+        if (localFiles != null && localFiles.length > 0) {
+            Arrays.sort(localFiles, Comparator.comparingLong(File::lastModified).reversed());
+            String latestLocalFileName = localFiles[0].getName();
+            String localTimestamp = latestLocalFileName.replaceAll("^.*(_\\d{14})\\.csv$", "$1");
+
+            if (localTimestamp.compareTo(timestamp) < 0) {
+                deleteOldFiles(localFiles);
+                LOGGER.warn("Replacing with newer file: {}", filename);
+                downloadFile(sftp, remoteDir + File.separator + dir + File.separator + filesDirectory + File.separator + filename,
+                    srcLocation + File.separator + filename);
+            }
+        } else {
+            LOGGER.warn("Downloading new file: {}", filename);
+            downloadFile(sftp, remoteDir + File.separator + dir + File.separator + filesDirectory + File.separator + filename,
+                srcLocation + File.separator + filename);
+        }
+    }
+
+    private void deleteOldFiles(File[] localFiles) {
+        for (File localFile : localFiles) {
+            LOGGER.warn("Deleting old file: {}", localFile.getAbsolutePath());
+            localFile.delete();
+        }
+    }
+
+    private void downloadFile(SftpClient sftp, String remoteFilePath, String localFilePath) {
+        try {
+            try (InputStream inputStream = sftp.read(remoteFilePath)) {
+                Files.copy(inputStream, FileSecUtils.getPath(localFilePath), StandardCopyOption.REPLACE_EXISTING);
+                LOGGER.warn("Successfully downloaded ");
+            }
+        } catch (IOException e) {
+            LOGGER.error("an exception occurs when downloading from the source file to the destination file");
+        }
+    }
+
+    private void checkAndCreateDirectory(String directoryPath) {
+        Path path = FileSecUtils.getPath(directoryPath);
+        if (!Files.exists(path)) {
+            try {
+                Files.createDirectories(path);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
+
