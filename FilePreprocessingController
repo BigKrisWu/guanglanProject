@@ -1,0 +1,42 @@
+@RestController
+@RestSchema(schemaId = "fileProcess")
+@RequestMapping(ServiceConstants.SERVICE_URL_PREFIX + "/nebulatool")
+@Api(tags = ServiceConstants.SERVICE_PUBLIC_API_TAG)
+public class FilePreprocessingController {
+    private static final Logger LOGGER = LoggerFactory.getLogger(FilePreprocessingController.class);
+    @Autowired
+    private FileDownloadService fileDownloadService;
+    @Autowired
+    private AppProperties appProperties;
+    @Autowired
+    private DataProcessingService dataProcessingService;
+    private static final ReentrantLock REENTRANT_LOCK = new ReentrantLock();
+
+    @GetMapping("/downloadAndProcess")
+    public String processData() {
+        boolean isLocked = false;
+        try {
+            if (REENTRANT_LOCK.isLocked()) {
+                return "task is running";
+            }
+            REENTRANT_LOCK.lock();
+            isLocked = true;
+            Map<String, String> sudoMap = DataBaseUtil.getSudoMap();
+            Runtime.getRuntime().exec(sudoMap.get(Constants.CHANGE_OWNER));
+            FileDownloaderServiceImpl.fetchConfigFromPage();
+            appProperties.fetchPathFromPage();
+            fileDownloadService.downloadFiles();
+            Runtime.getRuntime().exec(sudoMap.get(Constants.Filter_AND_COPY));
+            dataProcessingService.processData();
+            Runtime.getRuntime().exec(sudoMap.get(Constants.CHANGE_OWNER_PAAS));
+            return "All data processed successfully!";
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "Data processing failed: " + e.getMessage();
+        } finally {
+            if(isLocked){
+                REENTRANT_LOCK.unlock();
+            }
+        }
+    }
+}
