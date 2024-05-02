@@ -1,0 +1,307 @@
+/**
+ * 同步文件上传下载
+ *
+ * @since 2024/5/2
+ */
+@Component
+public class FileSynchronizationServiceImpl implements FileSynchronizationService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(FileSynchronizationServiceImpl.class);
+
+    private static String remoteIp;
+
+    private static String remoteDir;
+
+    private static int port;
+
+    private static String username;
+
+    private static String password;
+
+    private static Set<String> fileSet;
+
+    private static String filesDirectory;
+
+    private static Pattern dirPattern;
+
+    private static int maxDirSize;
+
+    private static String localTempDir;
+
+    private static String sftp_host;
+
+    private static int sftp_port;
+
+    private static String sftp_username;
+
+    private static String sftp_password;
+
+    private static String sftp_remoteDir;
+
+    private static String src_remote_dir;
+
+    private static String col_remote_dir;
+
+    private static String pro_remote_dir;
+
+    private ExecutorService executor = Executors.newFixedThreadPool(3); // 根据需要调整线程数
+
+    private static final List<String> processList = Arrays.asList("_SEGMENT_", "_STRONGHOLD_", "_CABLELAYING_",
+        "_CIRCUITASSIGN_", "_CIRCUITLINK_", "_FIBER_", "_JOINT_", "_LOGICALFIBERCIR_", "_OCCP_", "_OPTCABLESECTION_",
+        "_OPTICALCABLE_", "_OPTICALCIRCUIT_", "_IRM_IV_OTN_");
+
+    public static void fetchConfigFromPage() {
+        Map<String, String> parameter = ServiceUtil.getNebulaConfig();
+        remoteIp = parameter.get("remoteIp");
+        remoteDir = parameter.get("remoteDir");
+        port = Integer.parseInt(parameter.get("port"));
+        username = parameter.get("username");
+        password = parameter.get("password");
+        localTempDir = parameter.get("localTempDirectory");
+        fileSet = new HashSet<>(Arrays.asList(parameter.get("fileSet").split(",")));
+        filesDirectory = parameter.get("filesDirectory");
+        maxDirSize = Integer.parseInt(parameter.get("maxDirSize"));
+        dirPattern = Pattern.compile(parameter.get("directoryPattern"));
+        sftp_host = parameter.get("sftp.host");
+        sftp_port = Integer.parseInt(parameter.get("sftp.port"));
+        sftp_username = parameter.get("sftp.username");
+        sftp_password = parameter.get("sftp.password");
+        sftp_remoteDir = parameter.get("sftp.remoteDir");
+        src_remote_dir = sftp_remoteDir + File.separator + "src";
+        col_remote_dir = sftp_remoteDir + File.separator + "col";
+        pro_remote_dir = sftp_remoteDir + File.separator + "pro";
+    }
+
+    @Override
+    public void synchronizeFiles() throws IOException {
+        checkAndCreateDirectory(localTempDir);
+        SftpClientUtil sftpClientUtil = new SftpClientUtil();
+        SftpClient srcSftpClient = sftpClientUtil.SftpClient(remoteIp, username, password, port);
+        SftpClient destSftpClient = sftpClientUtil.SftpClient(sftp_host, sftp_username, sftp_password, sftp_port);
+        List<String> recentDirs = getRecentDirs(srcSftpClient, remoteDir, maxDirSize);
+        handleFileSync(srcSftpClient, destSftpClient, recentDirs, sftp_remoteDir, src_remote_dir, pro_remote_dir);
+    }
+
+    private List<String> getRecentDirs(SftpClient sftp, String remoteDir, int maxDirSize) throws IOException {
+        Iterable<SftpClient.DirEntry> dirEntries = sftp.readDir(remoteDir);
+        List<String> recentDirs = new ArrayList<>();
+        for (SftpClient.DirEntry entry : dirEntries) {
+            if (entry.getAttributes().isDirectory()) {
+                String dirName = entry.getFilename();
+                if (dirPattern.matcher(dirName).matches()) {
+                    try {
+                        sftp.stat(remoteDir + File.separator + dirName + File.separator + filesDirectory);
+                        recentDirs.add(dirName);
+                    } catch (SftpException e) {
+                        LOGGER.error("Skipping directory as 'files' subdirectory does not exist: " + dirName);
+                        continue;
+                    }
+                }
+            }
+        }
+        recentDirs.sort(Collections.reverseOrder());
+        return recentDirs.subList(0, Math.min(recentDirs.size(), maxDirSize));
+    }
+
+    private Set<String> retrieveSrcFiles(SftpClient sftp, List<String> recentDirs) throws IOException {
+        Set<String> matchedFiles = new HashSet<>();
+        for (String dir : recentDirs) {
+            Iterable<SftpClient.DirEntry> files = sftp.readDir(
+                remoteDir + File.separator + dir + File.separator + filesDirectory);
+            for (SftpClient.DirEntry entry : files) {
+                String filename = entry.getFilename();
+                for (String pattern : fileSet) {
+                    if (filename.contains(pattern)) {
+                        String filePath = remoteDir + File.separator + dir + File.separator + filesDirectory
+                            + File.separator + filename;
+                        SftpClient.Attributes attrs = sftp.stat(filePath);
+                        if (attrs.getSize() > 0) {
+                            if (hasDataLines(sftp, filePath)) {
+                                matchedFiles.add(filename);
+                                break; // 匹配到一个模式后不需要继续检查其他模式
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return matchedFiles;
+    }
+
+    private boolean hasDataLines(SftpClient sftp, String filePath) throws IOException {
+        try (InputStream in = sftp.read(filePath)) {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+            reader.readLine(); // 跳过表头
+            String secondLine = reader.readLine();
+            return secondLine != null && !secondLine.trim().isEmpty();
+        }
+    }
+
+    private void deleteOldFiles(File[] localFiles) {
+        for (File localFile : localFiles) {
+            LOGGER.warn("Deleting old file: {}", localFile.getAbsolutePath());
+            localFile.delete();
+        }
+    }
+
+    private void downloadFile(SftpClient sftp, String remoteFilePath, String localFilePath) {
+        try {
+            try (InputStream inputStream = sftp.read(remoteFilePath)) {
+                Files.copy(inputStream, Paths.get(localFilePath), StandardCopyOption.REPLACE_EXISTING);
+                LOGGER.warn("Successfully downloaded ");
+            }
+        } catch (IOException e) {
+            LOGGER.error("an exception occurs when downloading from the source file to the destination file");
+        }
+    }
+
+    private void checkAndCreateDirectory(String directoryPath) {
+        Path path = Paths.get(directoryPath);
+        if (!Files.exists(path)) {
+            try {
+                Files.createDirectories(path);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void handleFileSync(SftpClient srcSftp, SftpClient destSftp, List<String> srcDir, String destDir,
+        String destSrcDir, String destProDir) {
+        try {
+            Set<String> srcFiles = retrieveSrcFiles(srcSftp, srcDir);
+            Set<String> destFiles = retrieveDestFiles(destSftp, destSrcDir, destProDir);
+            Set<String> filesToUpdate = determineFilesToUpdate(srcSftp, srcDir, destSftp, destDir, srcFiles, destFiles);
+
+            for (String fileName : filesToUpdate) {
+                executor.submit(() -> {
+                    try {
+                        String localFilePath = localTempDir + File.separator + fileName;
+                        String remoteFilePath = determineDestinationPath(fileName, destSrcDir, destProDir);
+
+                        // 下载文件
+                        downloadFile(srcSftp, srcDir + File.separator + fileName, localFilePath);
+                        LOGGER.info("Downloaded file: {}", fileName);
+
+                        // 上传文件
+                        uploadFile(destSftp, localFilePath, remoteFilePath);
+                        LOGGER.info("Uploaded file to {}: {}", remoteFilePath, fileName);
+                    } catch (IOException e) {
+                        LOGGER.error("Error processing file: {}", fileName, e);
+                    }
+                });
+            }
+
+            // 等待所有任务完成
+            executor.shutdown();
+            executor.awaitTermination(1, TimeUnit.HOURS); // 根据实际情况调整超时时间
+        } catch (InterruptedException e) {
+            LOGGER.error("Thread interrupted during file synchronization", e);
+            Thread.currentThread().interrupt();
+        } catch (IOException e) {
+            LOGGER.error("Error initializing file synchronization", e);
+        }
+    }
+
+    private Set<String> determineFilesToUpdate(SftpClient srcSftp, String srcDir, SftpClient destSftp, String destDir,
+        Set<String> srcFiles, Set<String> destFiles) throws IOException {
+
+        Set<String> filesToUpdate = new HashSet<>();
+        // 检查目标服务器上的文件是否需要从源服务器更新
+        for (String destFileName : destFiles) {
+            String destFilePath = destDir + File.separator + destFileName;
+            LocalDateTime destFileTime = getFileTimestamp(destSftp, destFilePath);
+            // 检查源服务器上是否存在同名文件
+            if (srcFiles.contains(destFileName)) {
+                String srcFilePath = srcDir + File.separator + destFileName;
+                LocalDateTime srcFileTime = getFileTimestamp(srcSftp, srcFilePath);
+                // 如果源文件时间戳较新，则添加到更新列表
+                if (srcFileTime.isAfter(destFileTime)) {
+                    filesToUpdate.add(destFileName);
+                }
+            }
+        }
+        // 检查源服务器上是否有目标服务器上不存在的文件，添加这些新文件到更新列表
+        for (String srcFileName : srcFiles) {
+            if (!destFiles.contains(srcFileName)) {
+                filesToUpdate.add(srcFileName);
+            }
+        }
+        return filesToUpdate;
+    }
+
+    private LocalDateTime getFileTimestamp(SftpClient sftp, String filePath) throws IOException {
+        try {
+            // 获取文件属性
+            SftpClient.Attributes attrs = sftp.stat(filePath);
+            // 从属性中获取最后修改时间
+            Instant lastModifiedInstant = attrs.getModifyTime().toInstant();
+            // 转换为 LocalDateTime
+            LocalDateTime lastModifiedTime = LocalDateTime.ofInstant(lastModifiedInstant, ZoneId.systemDefault());
+            LOGGER.info("File timestamp for {} is {}", filePath, lastModifiedTime);
+            return lastModifiedTime;
+        } catch (IOException e) {
+            // 记录异常并重新抛出，以便调用者可以处理
+            LOGGER.error("Unable to retrieve timestamp for file: {}", filePath, e);
+            throw e;
+        }
+    }
+
+    // private LocalDateTime getFileTimestamp(SftpClientUtil sftp, String filePath) throws IOException {
+    //     SftpClientUtil.Attributes attributes = sftp.stat(filePath);
+    //     return LocalDateTime.ofInstant(attributes.getModifyTime().toInstant(), ZoneId.systemDefault());
+    // }
+
+    /**
+     * 确定目标路径
+     * @param fileName
+     * @param destSrcDir
+     * @param destProDir
+     * @return
+     */
+    private String determineDestinationPath(String fileName, String destSrcDir, String destProDir) {
+        for (String keyword : processList) {
+            if (fileName.contains(keyword)) {
+                return destSrcDir + File.separator + fileName;
+            }
+        }
+        return destProDir + File.separator + fileName;
+    }
+
+    /**
+     * 检索目标文件
+     * @param sftpClient
+     * @param srcDir
+     * @param proDir
+     * @return
+     */
+    public Set<String> retrieveDestFiles(SftpClient sftpClient, String srcDir, String proDir) {
+        Set<String> destFiles = new HashSet<>();
+        try {
+            // 读取 src 目录下的所有文件并添加到 destFiles 列表
+            destFiles.addAll(listFiles(sftpClient, srcDir));
+            // 读取 pro 目录下的所有文件添加到同一个列表
+            destFiles.addAll(listFiles(sftpClient, proDir));
+        } catch (IOException e) {
+            LOGGER.error("Error while retrieving files from src and pro directories", e);
+        }
+        return destFiles;
+    }
+
+    private List<String> listFiles(SftpClient sftpClient, String directory) throws IOException {
+        List<String> fileList = new ArrayList<>();
+        Iterable<SftpClient.DirEntry> dirEntries = sftpClient.readDir(directory);
+        for (SftpClient.DirEntry entry : dirEntries) {
+            if (!entry.getAttributes().isDirectory()) { // 过滤掉子目录，只添加文件
+                fileList.add(entry.getFilename());
+            }
+        }
+        return fileList;
+    }
+
+    private void uploadFile(SftpClient sftp, String localFilePath, String remoteFilePath) throws IOException {
+        try (OutputStream outputStream = sftp.write(remoteFilePath)) {
+            Files.copy(Paths.get(localFilePath), outputStream);
+            LOGGER.info("Successfully uploaded: " + remoteFilePath);
+        }
+    }
+}
