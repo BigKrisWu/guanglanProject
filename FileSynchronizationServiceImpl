@@ -1,3 +1,4 @@
+
 /**
  * 同步文件上传下载
  *
@@ -25,8 +26,6 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
 
     private static int maxDirSize;
 
-    private static String localTempDir;
-
     private static String sftp_host;
 
     private static int sftp_port;
@@ -43,6 +42,7 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
 
     private static String pro_remote_dir;
 
+    private static final String LOCALTEMPDIR = "/opt/collection/srcTemp";
     private ExecutorService executor = Executors.newFixedThreadPool(3); // 根据需要调整线程数
 
     private static final List<String> processList = Arrays.asList("_SEGMENT_", "_STRONGHOLD_", "_CABLELAYING_",
@@ -56,7 +56,6 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         port = Integer.parseInt(parameter.get("port"));
         username = parameter.get("username");
         password = parameter.get("password");
-        localTempDir = parameter.get("localTempDirectory");
         fileSet = new HashSet<>(Arrays.asList(parameter.get("fileSet").split(",")));
         filesDirectory = parameter.get("filesDirectory");
         maxDirSize = Integer.parseInt(parameter.get("maxDirSize"));
@@ -73,7 +72,7 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
 
     @Override
     public void synchronizeFiles() throws IOException {
-        checkAndCreateDirectory(localTempDir);
+        checkAndCreateDirectory(LOCALTEMPDIR);
         SftpClientUtil sftpClientUtil = new SftpClientUtil();
         SftpClient srcSftpClient = sftpClientUtil.SftpClient(remoteIp, username, password, port);
         SftpClient destSftpClient = sftpClientUtil.SftpClient(sftp_host, sftp_username, sftp_password, sftp_port);
@@ -116,7 +115,7 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
                         SftpClient.Attributes attrs = sftp.stat(filePath);
                         if (attrs.getSize() > 0) {
                             if (hasDataLines(sftp, filePath)) {
-                                matchedFiles.add(filename);
+                                matchedFiles.add(filePath);
                                 break; // 匹配到一个模式后不需要继续检查其他模式
                             }
                         }
@@ -170,23 +169,24 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         try {
             Set<String> srcFiles = retrieveSrcFiles(srcSftp, srcDir);
             Set<String> destFiles = retrieveDestFiles(destSftp, destSrcDir, destProDir);
-            Set<String> filesToUpdate = determineFilesToUpdate(srcSftp, srcDir, destSftp, destDir, srcFiles, destFiles);
+            Set<String> filesToUpdate = determineFilesToUpdate(destDir, srcFiles, destFiles);
 
-            for (String fileName : filesToUpdate) {
+            for (String filePath : filesToUpdate) {
+                String fileName = getFileName(filePath);
                 executor.submit(() -> {
                     try {
-                        String localFilePath = localTempDir + File.separator + fileName;
+                        String localFilePath = LOCALTEMPDIR + File.separator + fileName;
                         String remoteFilePath = determineDestinationPath(fileName, destSrcDir, destProDir);
 
                         // 下载文件
-                        downloadFile(srcSftp, srcDir + File.separator + fileName, localFilePath);
-                        LOGGER.info("Downloaded file: {}", fileName);
+                        downloadFile(srcSftp, filePath, localFilePath);
+                        LOGGER.warn("Downloaded file: {}", filePath);
 
                         // 上传文件
                         uploadFile(destSftp, localFilePath, remoteFilePath);
-                        LOGGER.info("Uploaded file to {}: {}", remoteFilePath, fileName);
+                        LOGGER.warn("Uploaded file to {}: {}", remoteFilePath, filePath);
                     } catch (IOException e) {
-                        LOGGER.error("Error processing file: {}", fileName, e);
+                        LOGGER.error("Error processing file: {}", filePath, e);
                     }
                 });
             }
@@ -201,27 +201,25 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
             LOGGER.error("Error initializing file synchronization", e);
         }
     }
-
-    private Set<String> determineFilesToUpdate(SftpClient srcSftp, String srcDir, SftpClient destSftp, String destDir,
-        Set<String> srcFiles, Set<String> destFiles) throws IOException {
+    public String getFileName(String filePath) {
+            Path path = Paths.get(filePath);
+            return path.getFileName().toString();
+    }
+    private Set<String> determineFilesToUpdate(String destDir, Set<String> srcFiles, Set<String> destFiles) throws IOException {
 
         Set<String> filesToUpdate = new HashSet<>();
-        // 检查目标服务器上的文件是否需要从源服务器更新
-        for (String destFileName : destFiles) {
-            String destFilePath = destDir + File.separator + destFileName;
-            LocalDateTime destFileTime = getFileTimestamp(destSftp, destFilePath);
-            // 检查源服务器上是否存在同名文件
-            if (srcFiles.contains(destFileName)) {
-                String srcFilePath = srcDir + File.separator + destFileName;
-                LocalDateTime srcFileTime = getFileTimestamp(srcSftp, srcFilePath);
-                // 如果源文件时间戳较新，则添加到更新列表
-                if (srcFileTime.isAfter(destFileTime)) {
-                    filesToUpdate.add(destFileName);
+        for (String srcFileName : srcFiles) {
+            String srcFilePath = srcFileName; // 构造完整的源文件路径
+            LocalDateTime srcFileTime = getFileTimestamp(srcFilePath);
+            if (srcFileTime != null && destFiles.contains(srcFileName)) {
+                String destFilePath = destDir + File.separator + srcFileName;
+                LocalDateTime destFileTime = getFileTimestamp(destFilePath);
+                // 检查时间戳，并只有在源时间戳较新时添加到更新列表
+                if (destFileTime != null && srcFileTime.isAfter(destFileTime)) {
+                    filesToUpdate.add(srcFileName);
                 }
             }
-        }
-        // 检查源服务器上是否有目标服务器上不存在的文件，添加这些新文件到更新列表
-        for (String srcFileName : srcFiles) {
+            // 如果目标文件中不存在源文件，也添加到更新列表
             if (!destFiles.contains(srcFileName)) {
                 filesToUpdate.add(srcFileName);
             }
@@ -229,21 +227,24 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         return filesToUpdate;
     }
 
-    private LocalDateTime getFileTimestamp(SftpClient sftp, String filePath) throws IOException {
-        try {
-            // 获取文件属性
-            SftpClient.Attributes attrs = sftp.stat(filePath);
-            // 从属性中获取最后修改时间
-            Instant lastModifiedInstant = attrs.getModifyTime().toInstant();
-            // 转换为 LocalDateTime
-            LocalDateTime lastModifiedTime = LocalDateTime.ofInstant(lastModifiedInstant, ZoneId.systemDefault());
-            LOGGER.info("File timestamp for {} is {}", filePath, lastModifiedTime);
-            return lastModifiedTime;
-        } catch (IOException e) {
-            // 记录异常并重新抛出，以便调用者可以处理
-            LOGGER.error("Unable to retrieve timestamp for file: {}", filePath, e);
-            throw e;
+    public LocalDateTime getFileTimestamp(String filePath) {
+        // 正则表达式以匹配文件名中的日期和时间
+        Pattern pattern = Pattern.compile("(\\d{14})"); // 匹配连续的14位数字
+        Matcher matcher = pattern.matcher(filePath);
+
+        if (matcher.find()) {
+            String timestampStr = matcher.group(1); // 提取匹配的日期时间字符串
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+            try {
+                return LocalDateTime.parse(timestampStr, formatter);
+            } catch (Exception e) {
+                System.err.println("Error parsing date time from file name: " + filePath);
+                e.printStackTrace();
+            }
+        } else {
+            System.err.println("No valid timestamp found in file path: " + filePath);
         }
+        return null; // 返回null或抛出异常，根据调用代码的错误处理策略决定
     }
 
     // private LocalDateTime getFileTimestamp(SftpClientUtil sftp, String filePath) throws IOException {
@@ -277,14 +278,34 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
     public Set<String> retrieveDestFiles(SftpClient sftpClient, String srcDir, String proDir) {
         Set<String> destFiles = new HashSet<>();
         try {
+            // 检查并创建src目录
+            ensureDirectoryExists(sftpClient, srcDir);
             // 读取 src 目录下的所有文件并添加到 destFiles 列表
             destFiles.addAll(listFiles(sftpClient, srcDir));
+
+            // 检查并创建pro目录
+            ensureDirectoryExists(sftpClient, proDir);
             // 读取 pro 目录下的所有文件添加到同一个列表
             destFiles.addAll(listFiles(sftpClient, proDir));
         } catch (IOException e) {
             LOGGER.error("Error while retrieving files from src and pro directories", e);
         }
         return destFiles;
+    }
+
+    private void ensureDirectoryExists(SftpClient sftpClient, String directory) throws IOException {
+        try {
+            sftpClient.stat(directory);
+        } catch (SftpException e) {
+            if (e.getStatus() == SftpConstants.SSH_FX_NO_SUCH_FILE) {
+                // 目录不存在，尝试创建
+                sftpClient.mkdir(directory);
+                LOGGER.warn("Directory created: {}", directory);
+            } else {
+                // 抛出其他异常
+                throw e;
+            }
+        }
     }
 
     private List<String> listFiles(SftpClient sftpClient, String directory) throws IOException {
@@ -301,7 +322,7 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
     private void uploadFile(SftpClient sftp, String localFilePath, String remoteFilePath) throws IOException {
         try (OutputStream outputStream = sftp.write(remoteFilePath)) {
             Files.copy(Paths.get(localFilePath), outputStream);
-            LOGGER.info("Successfully uploaded: " + remoteFilePath);
+            LOGGER.warn("Successfully uploaded: " + remoteFilePath);
         }
     }
 }
