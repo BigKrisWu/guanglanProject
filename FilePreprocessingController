@@ -1,3 +1,4 @@
+
 @RestController
 @RestSchema(schemaId = "fileProcess")
 @RequestMapping(ServiceConstants.SERVICE_URL_PREFIX + "/nebulatool")
@@ -8,6 +9,9 @@ public class FilePreprocessingController {
     private FileDownloadService fileDownloadService;
     @Autowired
     private AppProperties appProperties;
+
+    @Autowired
+    private FileSynchronizationService fileSynchronizationService;
     @Autowired
     private DataProcessingService dataProcessingService;
     private static final ReentrantLock REENTRANT_LOCK = new ReentrantLock();
@@ -21,14 +25,10 @@ public class FilePreprocessingController {
             }
             REENTRANT_LOCK.lock();
             isLocked = true;
-            Map<String, String> sudoMap = DataBaseUtil.getSudoMap();
-            Runtime.getRuntime().exec(sudoMap.get(Constants.CHANGE_OWNER));
-            FileDownloaderServiceImpl.fetchConfigFromPage();
+            FileSynchronizationServiceImpl.fetchConfigFromPage();
             appProperties.fetchPathFromPage();
-            fileDownloadService.downloadFiles();
-            Runtime.getRuntime().exec(sudoMap.get(Constants.Filter_AND_COPY));
+            fileSynchronizationService.synchronizeFiles();
             dataProcessingService.processData();
-            Runtime.getRuntime().exec(sudoMap.get(Constants.CHANGE_OWNER_PAAS));
             return "All data processed successfully!";
         } catch (Exception e) {
             e.printStackTrace();
