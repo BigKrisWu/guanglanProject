@@ -1,0 +1,44 @@
+定义三个模型-- 过滤模型、条件模型和分组模型
+
+过滤模型：
+base:
+[{
+	"group_name": "A",
+	"filter_field": "EQUIPLEVEL",
+	"operator": "=",
+	"filter_value": "5",
+	"rule_id": "",
+	"filter_flag": "base"
+}]
+
+combined:
+[{
+	"group_name": "A",
+	"filter_field": "CIRCUITLEVEL",
+	"operator": "=",
+	"filter_value": "6",
+	"rule_id": "",
+	"filter_flag": "combined"
+}]
+
+条件模型：
+relation:
+[{
+	"group_name": "B",
+	"base_field": "ID",
+	"operator": "in",
+	"combined_filed": "AENDDEVICE_ID",
+	"rule_id": "",
+	"filter_flag": "relation"
+},
+{
+	"group_name": "B",
+	"base_field": "ID",
+	"operator": "in",
+	"combined_filed": "ZENDDEVICE_ID",
+	"rule_id": "",
+	"filter_flag": "relation"
+}]
+
+
+分组模型：存放过滤模型和条件模型的集合
