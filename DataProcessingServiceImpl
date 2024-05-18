@@ -1,0 +1,191 @@
+import com.huawei.fiber.config.AppProperties;
+import com.huawei.fiber.processor.C2DeviceFilter;
+import com.huawei.fiber.processor.JointFilter;
+import com.huawei.fiber.processor.LogicalFibercirStepOne;
+import com.huawei.fiber.processor.LogicalFibercirStepThree;
+import com.huawei.fiber.processor.LogicalFibercirStepTwo;
+import com.huawei.fiber.processor.OccpFilter;
+import com.huawei.fiber.processor.OptcableSectionStepFour;
+import com.huawei.fiber.processor.OptcableSectionStepOne;
+import com.huawei.fiber.processor.OptcableSectionStepThree;
+import com.huawei.fiber.processor.OptcableSectionStepTwo;
+import com.huawei.fiber.processor.OpticalCirCuitStepOne;
+import com.huawei.fiber.processor.OpticalCirCuitStepTwo;
+import com.huawei.fiber.processor.StrongholdFilter;
+import com.huawei.fiber.service.DataProcessingService;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+
+/**
+ * 二干数据处理
+ *
+ * @since 2024/3/9
+ */
+@Component
+public class DataProcessingServiceImpl implements DataProcessingService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(DataProcessingServiceImpl.class);
+
+    @Autowired
+    private AppProperties appProperties;
+
+    @Autowired
+    private OpticalCirCuitStepOne cirCuitStepOne;
+
+    @Autowired
+    private OpticalCirCuitStepTwo cirCuitStepTwo;
+
+    @Autowired
+    private LogicalFibercirStepOne logicalFibercirStepOne;
+
+    @Autowired
+    private OccpFilter occpFilter;
+
+    @Autowired
+    private LogicalFibercirStepThree logicalFibercirStepThree;
+
+    @Autowired
+    private LogicalFibercirStepTwo logicalFibercirStepTwo;
+
+    @Autowired
+    private OptcableSectionStepOne sectionStepOne;
+
+    @Autowired
+    private OptcableSectionStepTwo sectionStepTwo;
+
+    @Autowired
+    private OptcableSectionStepThree sectionStepThree;
+
+    @Autowired
+    private OptcableSectionStepFour sectionStepFour;
+
+    @Autowired
+    private JointFilter jointFilter;
+
+    @Autowired
+    private StrongholdFilter strongholdFilter;
+
+    @Override
+    public void processData() throws IOException {
+        dealOpticalCircuit();
+        dealLogicalFiberCir();
+        dealFiber();
+        dealCircuitLinkSection();
+        dealSectionSegment();
+    }
+
+    private void dealOpticalCircuit() throws IOException {
+        LOGGER.warn("Start to process optical path data.");
+        Instant startTime = Instant.now();
+        // 文件处理逻辑
+        C2DeviceFilter.readFile(appProperties.getResultSrc().toString(), appProperties.getDeviceFilePath().toString());
+        fileExist(appProperties.getDeviceFilePath(), "No devices filtered to the second trunk or the result is empty ");
+        cirCuitStepOne.process(appProperties.getResultSrc().toString(), appProperties.getDeviceFilePath().toString(),
+            appProperties.getOpticalCircuitPath().toString());
+        LOGGER.warn("Optical route data processing completed. Time required:" + getDurTime(startTime));
+    }
+
+    private void dealLogicalFiberCir() throws IOException {
+        LOGGER.warn("Start to process office-direction fiber data.");
+        Instant startTime = Instant.now();
+        fileExist(appProperties.getOpticalCircuitPath(),
+            "The directory does not contain the optical route file or the result is empty ");
+        cirCuitStepTwo.process(appProperties.getResultSrc().toString(), appProperties.getOpticalCircuitPath().toString(),
+            appProperties.getCircuitassignPath().toString());
+        fileExist(appProperties.getCircuitassignPath(),
+            "No optical path-office direction fiber association file exists in the directory or the result is empty ");
+        logicalFibercirStepOne.process(appProperties.getResultSrc().toString(),
+            appProperties.getCircuitassignPath().toString(), appProperties.getLogicalfibercirPath().toString());
+        LOGGER.warn("Office-direction fiber processing completed, time-consuming:" + getDurTime(startTime));
+
+        LOGGER.warn("Start to obtain the intersection point of the office-direction fiber");
+        fileExist(appProperties.getLogicalfibercirPath(),
+            "No result file of the office-direction fiber exists in the directory or the result is empty ");
+        Instant startTimeSecond = Instant.now();
+        occpFilter.process(appProperties.getResultSrc().toString(), appProperties.getLogicalfibercirPath().toString(),
+            appProperties.getOccpPath().toString());
+        LOGGER.warn(
+            "Obtaining intersection points of office-direction fibers, time-consuming:" + getDurTime(startTimeSecond));
+    }
+
+    private void dealFiber() throws IOException {
+        LOGGER.warn("Start to process the data of the fiber core");
+        Instant startTime = Instant.now();
+        fileExist(appProperties.getLogicalfibercirPath(),
+            "No result file of the office-direction fiber exists in the directory or the result is empty ");
+        logicalFibercirStepTwo.process(appProperties.getResultSrc().toString(),
+            appProperties.getLogicalfibercirPath().toString(), appProperties.getCircuitlinkPath().toString());
+        fileExist(appProperties.getCircuitlinkPath(),
+            "No office fiber-fiber core association table exists in the directory or the result is empty ");
+        logicalFibercirStepThree.process(appProperties.getResultSrc().toString(),
+            appProperties.getCircuitlinkPath().toString(), appProperties.getFiberPath().toString());
+        LOGGER.warn("Fiber core processing completed, time consumed:" + getDurTime(startTime));
+    }
+
+    private void dealCircuitLinkSection() throws IOException {
+        LOGGER.warn("Start to process optical cable section data");
+        fileExist(appProperties.getFiberPath(), "No fiber core result exists in the directory or the result is empty");
+        Instant startTime = Instant.now();
+        sectionStepOne.process(appProperties.getResultSrc().toString(), appProperties.getFiberPath().toString(),
+            appProperties.getOptcableSectionPath().toString());
+        LOGGER.warn("Optical cable section processing completed. Time required:" + getDurTime(startTime));
+        LOGGER.warn("Start to generate optical cable data.");
+        fileExist(appProperties.getOptcableSectionPath(),
+            "No optical cable section result exists in the directory or the result is empty");
+        Instant startTimeSecond = Instant.now();
+        sectionStepTwo.process(appProperties.getResultSrc().toString(), appProperties.getOptcableSectionPath().toString(),
+            appProperties.getOpticalcablePath().toString());
+        LOGGER.warn("Optical cable processing completed. Time required:" + getDurTime(startTimeSecond));
+    }
+
+    private void dealSectionSegment() throws IOException {
+        LOGGER.warn("Start processing data for a pipeline segment");
+        fileExist(appProperties.getOptcableSectionPath(),
+            "No optical cable section result exists in the directory or the result is empty ");
+        Instant startTime = Instant.now();
+        sectionStepThree.process(appProperties.getResultSrc().toString(),
+            appProperties.getOptcableSectionPath().toString(), appProperties.getCablelayingPath().toString());
+        fileExist(appProperties.getOptcableSectionPath(),
+            "No association between the optical cable section and pipe section exists in the catalog or the result is empty ");
+        sectionStepFour.process(appProperties.getResultSrc().toString(), appProperties.getCablelayingPath().toString(),
+            appProperties.getSegmentPath().toString());
+        LOGGER.warn("Processing pipe section complete, time taken:" + getDurTime(startTime));
+        LOGGER.warn("Start to add longitude and latitude to the pipeline segment data");
+        fileExist(appProperties.getSegmentPath(),
+            "There are no results for Pipe Segments in the directory or the result is empty ");
+        Instant startTimeSecond = Instant.now();
+        jointFilter.process(appProperties.getResultSrc().toString(), appProperties.getSegmentPath().toString(),
+            appProperties.getJointPath().toString());
+        LOGGER.warn("Processing pipeline section data to add longitude and latitude, time-consuming:" + getDurTime(
+            startTimeSecond));
+        LOGGER.warn("Start Pipe Segment Add Resource Point");
+        fileExist(appProperties.getSegmentPath(),
+            "There are no results for Pipe Segments in the directory or the result is empty ");
+        Instant startTimeThree = Instant.now();
+        strongholdFilter.process(appProperties.getResultSrc().toString(), appProperties.getSegmentPath().toString(),
+            appProperties.getStrongholdPath().toString());
+        LOGGER.warn(
+            "Process the pipe segment to add resource points, which takes a long time:" + getDurTime(startTimeThree));
+        LOGGER.warn("All data processed successfully!");
+    }
+
+    private void fileExist(Path filePath, String msg) throws IOException {
+        if (!Files.exists(filePath)) {
+            LOGGER.error(msg + filePath);
+            throw new IOException("Missing file");
+        }
+    }
+
+    // 获取持续时间
+    private long getDurTime(Instant startTime) {
+        return Duration.between(startTime, Instant.now()).getSeconds();
+    }
+}
