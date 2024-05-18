@@ -1,0 +1,70 @@
+
+package com.huawei.fiber.processor;
+
+import com.huawei.baize.security.misc.io.FileSecUtils;
+import com.huawei.us.common.file.UsFileUtils;
+
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVPrinter;
+import org.apache.commons.csv.CSVRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Reader;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ *  Device处理类
+ *
+ * @since 2024/3/4
+ */
+@Component
+public class C2DeviceFilter {
+    private static final Logger LOGGER = LoggerFactory.getLogger(C2DeviceFilter.class);
+
+    private static final String FILE_NAME_TAG = "IRM_IV_OTN_";
+
+    private static final String[] HEADER_COLUMNS = {
+        "ID", "NAME", "EQUIPLEVEL", "EQUIPMENTVENDOR_ID", "ENTITYTYPE_ID", "PREFECTURE_ID", "COUNTY_ID", "TOWNSHIP_ID",
+        "SITE_ID", "ROOM_ID", "STRONGHOLD_ID", "NODE_ID", "PARENTDEVICE_ID"
+    };
+
+    public static void readFile(String rmsPathString, String outputPathString) throws IOException {
+        File rmsPath = FileSecUtils.getFile(rmsPathString); // src路径
+        File outputPath = FileSecUtils.getFile(outputPathString); // 输出文件路径
+
+        // 筛选符合标签的文件
+        File[] files = FileSecUtils.getFile(rmsPathString).listFiles();
+        if (files == null) {
+            throw new IOException("Invalid rmsPath: " + rmsPath);
+        }
+        for (File file : files) {
+            if (file.getName().contains(FILE_NAME_TAG)) {
+                // 创建输出文件的打印机，只写入表头一次
+                try (CSVPrinter printer = new CSVPrinter(UsFileUtils.getFileWriter(outputPath),
+                    CSVFormat.DEFAULT.withHeader(HEADER_COLUMNS))) {
+                    LOGGER.warn("Processing file: " + file.getName());
+                    try (Reader in = UsFileUtils.getFileReader(file)) {
+                        Iterable<CSVRecord> records = CSVFormat.DEFAULT.withFirstRecordAsHeader()
+                            .withIgnoreHeaderCase()
+                            .withTrim()
+                            .parse(in);
+                        for (CSVRecord record : records) {
+                            if ("5".equals(record.get("EQUIPLEVEL"))) {
+                                List<String> data = new ArrayList<>();
+                                for (String column : HEADER_COLUMNS) {
+                                    data.add(record.get(column));
+                                }
+                                printer.printRecord(data);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
