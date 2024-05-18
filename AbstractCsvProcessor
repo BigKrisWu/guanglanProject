@@ -1,4 +1,4 @@
-
+package com.huawei.fiber.processor;
 import com.huawei.baize.security.misc.io.FileSecUtils;
 import com.huawei.fiber.config.AppProperties;
 import com.huawei.us.common.file.UsFileUtils;
