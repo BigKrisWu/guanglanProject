@@ -1,0 +1,21 @@
+        String res ="{\n" + "  \"start\": 0,\n" + "  \"limit\": 100,\n" + "  \"total\": 2,\n" + "  \"results\": [\n"
+            + "    {\n" + "      \"id\": \"640c0ff0-13f2-11ef-9f12-0255ac1200a0\",\n"
+            + "      \"keycode\": \"640c5e11-13f2-11ef-9f12-0255ac1200a0\",\n"
+            + "      \"rule_id\": \"640c5e11-13f2-11ef-9f12-0255ac1200a0\",\n" + "      \"active\": true,\n"
+            + "      \"base_filter\": \"[{\\\"group_name\\\":\\\"A\\\",\\\"filter_field\\\":\\\"EQUIPLEVEL\\\",\\\"operator\\\":\\\"=\\\",\\\"filter_value\\\":\\\"5\\\",\\\"rule_id\\\":\\\"640c5e11-13f2-11ef-9f12-0255ac1200a0\\\",\\\"filter_flag\\\":\\\"base\\\"}]\",\n"
+            + "      \"change_time\": 1716189374948,\n" + "      \"combined_filter\": \"[]\",\n"
+            + "      \"combined_table\": \" \",\n" + "      \"num\": \"1\",\n"
+            + "      \"primary_table\": \"D_RNT_IRM_IV_OTN_D\",\n" + "      \"relation_filter\": \"[]\",\n"
+            + "      \"rule_name\": \"guanglan_rule_1\"\n" + "    },\n" + "    {\n"
+            + "      \"id\": \"a5625ee3-13f4-11ef-9f12-0255ac1200a0\",\n"
+            + "      \"keycode\": \"a562ad04-13f4-11ef-9f12-0255ac1200a0\",\n"
+            + "      \"rule_id\": \"a562ad04-13f4-11ef-9f12-0255ac1200a0\",\n" + "      \"active\": true,\n"
+            + "      \"base_filter\": \"[]\",\n" + "      \"change_time\": 1715916201526,\n"
+            + "      \"combined_filter\": \"[{\\\"group_name\\\":\\\"A\\\",\\\"filter_field\\\":\\\"CIRCUITLEVEL\\\",\\\"operator\\\":\\\"=\\\",\\\"filter_value\\\":\\\"6\\\",\\\"rule_id\\\":\\\"a562ad04-13f4-11ef-9f12-0255ac1200a0\\\",\\\"filter_flag\\\":\\\"combined\\\"}]\",\n"
+            + "      \"combined_table\": \"D_RNT_IRM_IV_OPTICALCIRCUIT_D\",\n" + "      \"num\": \"2\",\n"
+            + "      \"primary_table\": \"D_RNT_IRM_IV_OTN_D\",\n"
+            + "      \"relation_filter\": \"[{\\\"group_name\\\":\\\"B\\\",\\\"base_field\\\":\\\"ID\\\",\\\"operator\\\":\\\"contains\\\",\\\"combined_filed\\\":\\\"AENDDEVICE_ID\\\",\\\"rule_id\\\":\\\"a562ad04-13f4-11ef-9f12-0255ac1200a0\\\",\\\"filter_flag\\\":\\\"relation\\\"},{\\\"group_name\\\":\\\"B\\\",\\\"base_field\\\":\\\"ID\\\",\\\"operator\\\":\\\"contains\\\",\\\"combined_filed\\\":\\\"ZENDDEVICE_ID\\\",\\\"rule_id\\\":\\\"a562ad04-13f4-11ef-9f12-0255ac1200a0\\\",\\\"filter_flag\\\":\\\"relation\\\"}]\",\n"
+            + "      \"rule_name\": \"guanglan_rule_2\"\n" + "    }\n" + "  ]\n" + "}";
+        JSONObject object = new JSONObject(res);
+        JSONArray results = object.optJSONArray("results");
+        List<RuleModel> ruleModels = JsonDataParser.parseJson(results);
