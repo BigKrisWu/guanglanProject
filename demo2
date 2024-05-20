@@ -1,0 +1,57 @@
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class ConditionModel {
+    @JsonProperty("group_name")
+    private String groupName;
+    @JsonProperty("base_field")
+    private String baseField;
+    private String operator;
+    @JsonProperty("combined_field")
+    private String combinedField;
+    @JsonProperty("rule_id")
+    private String ruleId;
+    @JsonProperty("filter_flag")
+    private String filterFlag;
+}
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class FilterModel {
+    @JsonProperty("group_name")
+    private String groupName;
+    @JsonProperty("filter_field")
+    private String filterField;
+    private String operator;
+    @JsonProperty("filter_value")
+    private String filterValue;
+    @JsonProperty("rule_id")
+    private String ruleId;
+    @JsonProperty("filter_flag")
+    private String filterFlag;
+}
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class RuleModel {
+
+    private int num;
+    @JsonProperty("rule_name")
+    private String ruleName;
+    @JsonProperty("primary_table")
+    private String primaryTable;
+
+    @JsonProperty("combined_table")
+    private String combinedTable;
+    @JsonProperty("base_filter")
+    private List<FilterModel> baseFilters;
+
+    @JsonProperty("combined_filter")
+    private List<FilterModel> combinedFilters;
+    @JsonProperty("relation_filter")
+    private List<ConditionModel> relationFilters;
+}
+
+public static List<RuleModel> parseJson(JSONArray jsonArray)
