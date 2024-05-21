@@ -4,3 +4,12 @@
         String res = invokeAppService(CONFIG_GET_URL, JsonUtils.map2Json(paraMap));
         JSONObject result = JacksonUtils.json2Bean(res, JSONObject.class);
         JSONArray results = result.optJSONArray("results");
+
+
+规则1、原始文件mod-1742848231-732770695_D_RNT_IRM_IV_OTN_D_20231213000000.csv
+过滤条件： EQUIPLEVEL ="5"    
+结果文件：D_RNT_IRM_IV_OTN_D.CSV                   
+
+规则2、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_OPTICALCIRCUIT_D_20230530000000.csv
+过滤条件 上一步的结果文件中ID contains AENDDEVICE_ID 并且ID contains ZENDDEVICE_ID 或者 CIRCUITLEVEL="6" 
+结果文件  D_RNT_IRM_IV_OPTICALCIRCUIT_D.CSV   
