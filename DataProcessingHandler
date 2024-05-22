@@ -1,0 +1,85 @@
+
+@Component
+public class DataProcessingHandler {
+    private static final Logger LOGGER = LoggerFactory.getLogger(DataProcessingHandler.class);
+    private static final String BASE_DIRECTORY = "/opt/collection/srcTemp";
+    private static final String OUTPUT_DIRECTORY = "/opt/collection/srcTemp";
+    private static final String[] HEADER_COLUMNS = {
+        "ID", "NAME", "EQUIPLEVEL", "EQUIPMENTVENDOR_ID", "ENTITYTYPE_ID", "PREFECTURE_ID", "COUNTY_ID", "TOWNSHIP_ID",
+        "SITE_ID", "ROOM_ID", "STRONGHOLD_ID", "NODE_ID", "PARENTDEVICE_ID"
+    };
+    @Autowired
+    private BaseDataFilterServiceImpl baseDataFilter;
+
+    public void handleDataProcessing() {
+        try {
+            List<RuleModel> ruleModels = ServiceUtil.getC2DataRules();
+            // 按 num 顺序执行规则
+            ruleModels.sort(Comparator.comparingInt(RuleModel::getNum));
+            //上一步输出结果
+            String previousOutputPath = null;
+            for (RuleModel ruleModel : ruleModels) {
+                // 获取基线表文件名
+                String primaryTablePath = (previousOutputPath == null)? BASE_DIRECTORY + File.separator + findFileName(ruleModel.getPrimaryTable()):previousOutputPath;
+                // 读取并过滤基线表数据
+                String primaryOutputPath = OUTPUT_DIRECTORY + File.separator + ruleModel.getPrimaryTable()+ ".csv";
+                filterAndProcessData(primaryTablePath, primaryOutputPath, ruleModel, true);
+                // 如果有关联表，则处理关联表
+                if (StringUtils.isNotBlank(ruleModel.getCombinedTable())) {
+                    String combinedTablePath = BASE_DIRECTORY + File.separator + findFileName(ruleModel.getCombinedTable());
+
+                    // 读取并过滤关联表数据
+                    String combinedOutputPath = OUTPUT_DIRECTORY + File.separator + ruleModel.getCombinedTable()+ "_filtered_" + ruleModel.getNum() + ".csv";;
+                    filterAndProcessData(combinedTablePath, combinedOutputPath, ruleModel, true);
+                }
+                // 更新 previousOutputPath 以便下一条规则使用
+                previousOutputPath = primaryOutputPath;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        
+    }
+
+
+
+    private void filterAndProcessData(String inputFilePath, String outputFilePath, RuleModel ruleModel, boolean isPrimaryTable) throws IOException {
+        try (Reader reader = UsFileUtils.getFileReader(inputFilePath);
+            CSVParser csvParser = new CSVParser(reader, CSVFormat.DEFAULT.withFirstRecordAsHeader().withIgnoreHeaderCase().withTrim());
+            CSVPrinter printer = new CSVPrinter(UsFileUtils.getFileWriter(outputFilePath), CSVFormat.DEFAULT.withHeader(HEADER_COLUMNS))) {
+
+            for (CSVRecord csvRecord : csvParser) {
+                if (baseDataFilter.applyRule(Collections.singletonList(csvRecord.toMap()), ruleModel).size() > 0) {
+                    List<String> data = new ArrayList<>();
+                    for (String column : HEADER_COLUMNS) {
+                        data.add(csvRecord.get(column));
+                    }
+                    printer.printRecord(data);
+                }
+            }
+
+            // 如果是初始输入文件，删除原始文件
+            if (isPrimaryTable && !inputFilePath.contains("_filtered_")) {
+                File rawFile = new File(inputFilePath);
+                if (rawFile.delete()) {
+                    LOGGER.warn("Deleted the original file: {}", inputFilePath);
+                } else {
+                    LOGGER.warn("Failed to delete the original file: {}", inputFilePath);
+                }
+            }
+        }
+    }
+    private String findFileName(String fileName) throws IOException {
+        try (Stream<Path> paths = Files.walk(Paths.get(BASE_DIRECTORY))) {
+            Optional<Path> matchingFile = paths
+                .filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().contains(fileName))
+                .findFirst();
+
+            return matchingFile.map(Path::getFileName)
+                .map(Path::toString)
+                .orElse(null);
+        }
+    }
+
+}
