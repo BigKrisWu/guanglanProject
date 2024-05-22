@@ -1,0 +1,121 @@
+
+@Component
+public class BaseDataFilterServiceImpl implements DataFilterService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(BaseDataFilterServiceImpl.class);
+
+    @Override
+    public List<Map<String, String>> filterData(List<Map<String, String>> data, List<RuleModel> ruleModels) {
+        List<Map<String, String>> filteredData = new ArrayList<>(data);
+        LOGGER.warn("Starting filterData with {} rule models",ruleModels.size());
+        // 按 num 顺序执行规则
+        ruleModels.sort((r1, r2) -> Integer.compare(r1.getNum(), r2.getNum()));
+
+        for (RuleModel ruleModel : ruleModels) {
+            LOGGER.warn("Applying rule: {} with num :{}",ruleModel.getRuleName(),ruleModel.getNum());
+            filteredData = applyRule(filteredData, ruleModel);
+        }
+        LOGGER.warn("Completed filterData");
+        return filteredData;
+    }
+
+    public List<Map<String, String>> applyRule(List<Map<String, String>> data, RuleModel ruleModel) {
+        List<Map<String, String>> filteredData = new ArrayList<>(data);
+
+        for (Map<String, String> record : data) {
+            boolean includeRecord = true;
+            // 同分组的条件使用 "且" 关系，不同分组的条件使用 "或" 关系
+            for (String group : getUniqueGroups(ruleModel)) {
+                boolean groupMatch = true;
+                for (FilterModel baseFilter : ruleModel.getBaseFilters()) {
+                    if (baseFilter.getGroupName().equals(group)) {
+                        LOGGER.warn("Applying base filter : {} to record: {}",baseFilter,record);
+                        groupMatch &= applyFilter(record, baseFilter);
+                    }
+                }
+                for (FilterModel combinedFilter : ruleModel.getCombinedFilters()) {
+                    if (combinedFilter.getGroupName().equals(group)) {
+                        LOGGER.warn("Applying combined filter : {} to record: {}",combinedFilter,record);
+                        groupMatch &= applyFilter(record, combinedFilter);
+                    }
+                }
+                for (ConditionModel relationFilter : ruleModel.getRelationFilters()) {
+                    if (relationFilter.getGroupName().equals(group)) {
+                        LOGGER.warn("Applying relation filter : {} to record: {}",relationFilter,record);
+                        groupMatch &= applyCondition(record, relationFilter);
+                    }
+                }
+                includeRecord &= groupMatch;
+            }
+            if (includeRecord) {
+                filteredData.add(record);
+            }
+        }
+        return filteredData;
+    }
+
+    private Set<String> getUniqueGroups(RuleModel ruleModel) {
+        Set<String> groups = new HashSet<>();
+
+        for (FilterModel filter : ruleModel.getBaseFilters()) {
+            groups.add(filter.getGroupName());
+        }
+
+        for (FilterModel filter : ruleModel.getCombinedFilters()) {
+            groups.add(filter.getGroupName());
+        }
+
+        for (ConditionModel condition : ruleModel.getRelationFilters()) {
+            groups.add(condition.getGroupName());
+        }
+
+        return groups;
+    }
+
+    private boolean applyFilter(Map<String, String> record, FilterModel filterModel) {
+        String fieldValue = record.get(filterModel.getFilterField());
+        String filterValue = filterModel.getFilterValue();
+        String operator = filterModel.getOperator();
+        boolean result;
+        switch (operator) {
+            case "=":
+                result= fieldValue.equals(filterValue);
+                break;
+            case "!=":
+                result= !fieldValue.equals(filterValue);
+                break;
+            case "is empty":
+                result= fieldValue == null || fieldValue.isEmpty();
+                break;
+            case "is not empty":
+                result= fieldValue != null && !fieldValue.isEmpty();
+                break;
+            default:
+                result =false;
+                break;
+        }
+        LOGGER.warn("Filter applied: field={},operator={},value={},result={}",filterModel.getFilterField(),operator,filterValue,result);
+        return result;
+    }
+    private boolean applyCondition(Map<String, String> record, ConditionModel conditionModel) {
+        String baseValue = record.get(conditionModel.getBaseField());
+        String combinedValue = record.get(conditionModel.getCombinedField());
+        String operator = conditionModel.getOperator();
+        boolean result;
+        switch (operator) {
+            case "contains":
+                result= baseValue.contains(combinedValue);
+                break;
+            case "=":
+                result= baseValue.equals(combinedValue);
+                break;
+            default:
+                result =false;
+                break;
+        }
+        LOGGER.warn("Condition applied: baseField={},operator={},combinedFiled={},result={}",conditionModel.getBaseField(),operator,combinedValue,result);
+        return result;
+    }
+
+}
+
