@@ -18,3 +18,16 @@
 ID,NAME,EQUIPLEVEL,EQUIPMENTVENDOR_ID,ENTITYTYPE_ID,PREFECTURE_ID,COUNTY_ID,TOWNSHIP_ID,SITE_ID,ROOM_ID,STRONGHOLD_ID,NODE_ID,PARENTDEVICE_ID
 15914982,242-215-马岙1,1,15,36207,5,45,667,2212732,2212707,,,
 15914994,242-34-上阳1,1,15,36207,5,52,130126,2422408,2422593,,,
+
+
+
+    public static List<RuleModel> getC2DataRules() throws IOException {
+        Map<String, String> paraMap = new HashMap<>();
+        paraMap.put("start", "0");
+        paraMap.put("limit", "100");
+        String res = invokeAppService(C2_DATA_RULE_GET_LIST_URL, JsonUtils.map2Json(paraMap));
+        JSONObject result = JacksonUtils.json2Bean(res, JSONObject.class);
+        JSONArray results = result.optJSONArray("results");
+        List<RuleModel> ruleModels = JsonDataParser.parseJson(results);
+        return ruleModels;
+    }
