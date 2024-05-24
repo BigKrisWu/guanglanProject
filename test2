@@ -1,3 +1,39 @@
+
+
+
+下面会提供原始JSON、JSON解析和模型定义，后续的功能需要你理解需求和图片后来实现：
+
+String res ="{\n" + "  \"start\": 0,\n" + "  \"limit\": 100,\n" + "  \"total\": 2,\n" + "  \"results\": [\n"
+	+ "    {\n" + "      \"id\": \"640c0ff0-13f2-11ef-9f12-0255ac1200a0\",\n"
+	+ "      \"keycode\": \"640c5e11-13f2-11ef-9f12-0255ac1200a0\",\n"
+	+ "      \"rule_id\": \"640c5e11-13f2-11ef-9f12-0255ac1200a0\",\n" + "      \"active\": true,\n"
+	+ "      \"base_filter\": \"[{\\\"group_name\\\":\\\"A\\\",\\\"filter_field\\\":\\\"EQUIPLEVEL\\\",\\\"operator\\\":\\\"=\\\",\\\"filter_value\\\":\\\"5\\\",\\\"rule_id\\\":\\\"640c5e11-13f2-11ef-9f12-0255ac1200a0\\\",\\\"filter_flag\\\":\\\"base\\\"}]\",\n"
+	+ "      \"change_time\": 1716189374948,\n" + "      \"combined_filter\": \"[]\",\n"
+	+ "      \"combined_table\": \" \",\n" + "      \"num\": \"1\",\n"
+	+ "      \"primary_table\": \"D_RNT_IRM_IV_OTN_D\",\n" + "      \"relation_filter\": \"[]\",\n"
+	+ "      \"rule_name\": \"guanglan_rule_1\"\n" + "    },\n" + "    {\n"
+	+ "      \"id\": \"a5625ee3-13f4-11ef-9f12-0255ac1200a0\",\n"
+	+ "      \"keycode\": \"a562ad04-13f4-11ef-9f12-0255ac1200a0\",\n"
+	+ "      \"rule_id\": \"a562ad04-13f4-11ef-9f12-0255ac1200a0\",\n" + "      \"active\": true,\n"
+	+ "      \"base_filter\": \"[]\",\n" + "      \"change_time\": 1715916201526,\n"
+	+ "      \"combined_filter\": \"[{\\\"group_name\\\":\\\"A\\\",\\\"filter_field\\\":\\\"CIRCUITLEVEL\\\",\\\"operator\\\":\\\"=\\\",\\\"filter_value\\\":\\\"6\\\",\\\"rule_id\\\":\\\"a562ad04-13f4-11ef-9f12-0255ac1200a0\\\",\\\"filter_flag\\\":\\\"combined\\\"}]\",\n"
+	+ "      \"combined_table\": \"D_RNT_IRM_IV_OPTICALCIRCUIT_D\",\n" + "      \"num\": \"2\",\n"
+	+ "      \"primary_table\": \"D_RNT_IRM_IV_OTN_D\",\n"
+	+ "      \"relation_filter\": \"[{\\\"group_name\\\":\\\"B\\\",\\\"base_field\\\":\\\"ID\\\",\\\"operator\\\":\\\"contains\\\",\\\"combined_filed\\\":\\\"AENDDEVICE_ID\\\",\\\"rule_id\\\":\\\"a562ad04-13f4-11ef-9f12-0255ac1200a0\\\",\\\"filter_flag\\\":\\\"relation\\\"},{\\\"group_name\\\":\\\"B\\\",\\\"base_field\\\":\\\"ID\\\",\\\"operator\\\":\\\"contains\\\",\\\"combined_filed\\\":\\\"ZENDDEVICE_ID\\\",\\\"rule_id\\\":\\\"a562ad04-13f4-11ef-9f12-0255ac1200a0\\\",\\\"filter_flag\\\":\\\"relation\\\"}]\",\n"
+	+ "      \"rule_name\": \"guanglan_rule_2\"\n" + "    }\n" + "  ]\n" + "}";
+
+public class ServiceUtil
+    public static List<RuleModel> getC2DataRules() throws IOException {
+        Map<String, String> paraMap = new HashMap<>();
+        paraMap.put("start", "0");
+        paraMap.put("limit", "100");
+        String res = invokeAppService(C2_DATA_RULE_GET_LIST_URL, JsonUtils.map2Json(paraMap));
+        JSONObject result = JacksonUtils.json2Bean(res, JSONObject.class);
+        JSONArray results = result.optJSONArray("results");
+        List<RuleModel> ruleModels = JsonDataParser.parseJson(results);
+        return ruleModels;
+    }
+	
 public class JsonDataParser {
 
     public static List<RuleModel> parseJson(JSONArray jsonArray) throws IOException {
@@ -43,3 +79,80 @@ public class JsonDataParser {
         return ruleModels;
     }
 }
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class ConditionModel {
+    @JsonProperty("group_name")
+    private String groupName;
+    @JsonProperty("base_field")
+    private String baseField;
+    private String operator;
+    @JsonProperty("combined_field")
+    private String combinedField;
+    @JsonProperty("rule_id")
+    private String ruleId;
+    @JsonProperty("filter_flag")
+    private String filterFlag;
+}
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class FilterModel {
+    @JsonProperty("group_name")
+    private String groupName;
+    @JsonProperty("filter_field")
+    private String filterField;
+    private String operator;
+    @JsonProperty("filter_value")
+    private String filterValue;
+    @JsonProperty("rule_id")
+    private String ruleId;
+    @JsonProperty("filter_flag")
+    private String filterFlag;
+}
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class RuleModel {
+
+    private int num;
+    @JsonProperty("rule_name")
+    private String ruleName;
+    @JsonProperty("primary_table")
+    private String primaryTable;
+
+    @JsonProperty("combined_table")
+    private String combinedTable;
+    @JsonProperty("base_filter")
+    private List<FilterModel> baseFilters;
+
+    @JsonProperty("combined_filter")
+    private List<FilterModel> combinedFilters;
+    @JsonProperty("relation_filter")
+    private List<ConditionModel> relationFilters;
+}
+
+例子：
+    规则1、原始文件mod-1742848231-732770695_D_RNT_IRM_IV_OTN_D_20231213000000.csv
+	过滤条件： EQUIPLEVEL ="5"    
+	结果文件：D_RNT_IRM_IV_OTN_D.CSV                   
+
+	规则2、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_OPTICALCIRCUIT_D_20230530000000.csv
+	过滤条件 规则1的结果文件中ID contains AENDDEVICE_ID && ID contains ZENDDEVICE_ID || CIRCUITLEVEL="6"
+	结果文件  D_RNT_IRM_IV_OPTICALCIRCUIT_D.CSV  
+
+需求说明：
+	规则按照解析后的num字段来顺序执行
+	1、	规则1：
+	•	配置基线表和基线过滤条件。
+	•	生成过滤后的基线表结果文件。
+	2、	规则2及其后续规则：
+	•	不再配置基线过滤条件，只配置关联表过滤条件和关联条件。
+	•	从上一步（规则1）的结果文件和关联表中读取数据，根据关联表过滤条件和关联条件中的分组判断，同一分组的条件为"且"的关系，不同分组为“或”的关系。
+	•	生成过滤后的关联表结果文件。
+	3、如果配置的关联表不为空或null，则使用它作为生成的csv结果文件，否则使用基线表作为CSV结果文件，并删除包含它的原始文件，需要从/opt/collection/srcTmp固定目录中找。
+	4、关联表过滤条件 operator 包含"="、"!="、"is empty"、"is not empty"，关联条件 operator包含 "="、"contains",每一个都需要实现。
