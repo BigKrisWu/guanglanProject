@@ -156,3 +156,21 @@ public class RuleModel {
 	•	生成过滤后的关联表结果文件。
 	3、如果配置的关联表不为空或null，则使用它作为生成的csv结果文件，否则使用基线表作为CSV结果文件，并删除包含它的原始文件，需要从/opt/collection/srcTmp固定目录中找。
 	4、关联表过滤条件 operator 包含"="、"!="、"is empty"、"is not empty"，关联条件 operator包含 "="、"contains",每一个都需要实现。
+
+
+    private static final Map<Integer,String[]> RULE_HEADERS = new HashMap<>(13);
+
+    static {
+        RULE_HEADERS.put(1,new String[]{
+            "ID", "NAME", "EQUIPLEVEL", "EQUIPMENTVENDOR_ID", "ENTITYTYPE_ID", "PREFECTURE_ID", "COUNTY_ID", "TOWNSHIP_ID",
+            "SITE_ID", "ROOM_ID", "STRONGHOLD_ID", "NODE_ID", "PARENTDEVICE_ID"
+        });
+        RULE_HEADERS.put(2,new String[]{
+            "PREFECTURE_ID", "TOWNSHIP_ID", "NAME", "COUNTY_ID", "ID", "CARRYSYSTEM", "CIRCUITLEVEL", "ZENDPORT_ID",
+            "AENDPORTNAME", "ZENDDEVICENAME", "AENDDDFCONNECTOR_ID", "AENDDEVICENAME", "ZENDSTRONGHOLD_ID",
+            "ZENDACCESSROOMDEVICEPORT", "AENDROOM_ID", "AENDSTRONGHOLD_ID", "ZENDDEVICE_ID", "ZENDPORTNAME",
+            "ZENDDDFCONNECTORNAME", "AENDPORT_ID", "AENDSITE_ID", "AENDACCESSROOMDEVICENAME", "ZENDACCESSROOMDEVICEODFPORT",
+            "ZENDDDFCONNECTOR_ID", "AENDACCESSROOMDEVICEPORT", "ZENDROOM_ID", "ZENDSITE_ID", "ZENDACCESSROOMDEVICENAME",
+            "AENDDDFCONNECTORNAME", "AENDDEVICE_ID", "AENDACCESSROOMDEVICEODFPORT"
+        });
+    }
