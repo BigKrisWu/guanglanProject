@@ -31,3 +31,30 @@ ID,NAME,EQUIPLEVEL,EQUIPMENTVENDOR_ID,ENTITYTYPE_ID,PREFECTURE_ID,COUNTY_ID,TOWN
         List<RuleModel> ruleModels = JsonDataParser.parseJson(results);
         return ruleModels;
     }
+
+    private void deleteMatchingFiles(RuleModel ruleModel) throws IOException {
+        String tableName = StringUtils.isNotBlank(ruleModel.getCombinedTable()) ? ruleModel.getCombinedTable() : ruleModel.getPrimaryTable();
+        try (Stream<Path> paths = Files.walk(Paths.get(SRC_TMP_DIR))) {
+            paths.filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().contains(tableName))
+                .filter(path -> !path.getFileName().toString().startsWith(tableName))
+                .forEach(path -> {
+                    File file = path.toFile();
+                    if (file.delete()) {
+                        LOGGER.warn("Deleted file: {}", file.getAbsolutePath());
+                    } else {
+                        LOGGER.warn("Failed to delete file: {}", file.getAbsolutePath());
+                    }
+                });
+        }
+    }
+
+    private String getOriginalFile(String fileName) throws IOException {
+        try (Stream<Path> paths = Files.walk(Paths.get(SRC_TMP_DIR))) {
+            Optional<Path> matchingFile = paths.filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().contains(fileName))
+                .findFirst();
+
+            return matchingFile.map(Path::getFileName).map(Path::toString).orElse(null);
+        }
+    }
