@@ -1,4 +1,9 @@
 
+import com.huawei.fiber.constant.RuleConstants;
+import com.huawei.fiber.entity.ConditionModel;
+import com.huawei.fiber.entity.FilterModel;
+import com.huawei.fiber.entity.RuleModel;
+import com.huawei.fiber.utils.ServiceUtil;
 
 import com.opencsv.CSVReader;
 import com.opencsv.CSVWriter;
@@ -18,17 +23,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-/**
- *
- *
- * @since 2024/5/24
- */
+
 @Component
 public class DataFilterService {
     private static final Logger LOGGER = LoggerFactory.getLogger(DataFilterService.class);
@@ -120,26 +121,26 @@ public class DataFilterService {
 
             String[] combinedRow;
             while ((combinedRow = reader.readNext()) != null) {
-                LOGGER.warn("Processing combined row: {}", Arrays.toString(combinedRow));
+                // A
+                if (StringUtils.isNotBlank(combinedRow[33]) && StringUtils.isNotBlank(combinedRow[38])){
+                    boolean combinedMatch = evaluateFilters(combinedRow, combinedHeaders, combinedFilters);
 
-                boolean combinedMatch = evaluateFilters(combinedRow, combinedHeaders, combinedFilters);
-                LOGGER.warn("Combined match result: {}", combinedMatch);
-
-                boolean relationMatch = false;
-                if (combinedMatch) {
-                    relationMatch = evaluateRelationFilters(combinedRow, combinedHeaders, baselineData, baselineHeaders, relationFilters);
-                    LOGGER.warn("Relation match result: {}", relationMatch);
-                }
-
-                if (combinedMatch && relationMatch) {
-                    String[] filteredRow = new String[RuleConstants.RULE_HEADERS.get(2).length];
-                    for (int j = 0; j < combinedHeaders.length; j++) {
-                        int index = ArrayUtils.indexOf(RuleConstants.RULE_HEADERS.get(2), combinedHeaders[j]);
-                        if (index >= 0) {
-                            filteredRow[index] = combinedRow[j];
-                        }
+                    boolean relationMatch = false;
+                    // B
+                    if (!combinedMatch) {
+                        relationMatch = evaluateRelationFilters(combinedRow, combinedHeaders, baselineData, baselineHeaders, relationFilters);
                     }
-                    filteredData.add(filteredRow);
+
+                    if (combinedMatch || relationMatch) {
+                        String[] filteredRow = new String[RuleConstants.RULE_HEADERS.get(2).length];
+                        for (int j = 0; j < combinedHeaders.length; j++) {
+                            int index = ArrayUtils.indexOf(RuleConstants.RULE_HEADERS.get(2), combinedHeaders[j]);
+                            if (index >= 0) {
+                                filteredRow[index] = combinedRow[j];
+                            }
+                        }
+                        filteredData.add(filteredRow);
+                    }
                 }
             }
         } catch (IOException | CsvException e) {
@@ -156,7 +157,6 @@ public class DataFilterService {
             if (index >= 0) {
                 String value = row[index];
                 boolean conditionResult = evaluateCondition(value, filter.getOperator(), filter.getFilterValue());
-                LOGGER.warn("Evaluating filter: {} with value: {}, result: {}", filter, value, conditionResult);
                 if (!conditionResult) {
                     return false;
                 }
@@ -167,16 +167,23 @@ public class DataFilterService {
 
     private boolean evaluateRelationFilters(String[] combinedRow, String[] combinedHeaders, List<String[]> baselineData, String[] baselineHeaders, List<ConditionModel> relationFilters) {
         for (ConditionModel relationFilter : relationFilters) {
+            HashSet<String> set = new HashSet<>();
             int combinedIndex = ArrayUtils.indexOf(combinedHeaders, relationFilter.getCombinedField());
             int baselineIndex = ArrayUtils.indexOf(baselineHeaders, relationFilter.getBaseField());
             if (combinedIndex >= 0 && baselineIndex >= 0) {
+                boolean matchFound = false;
                 String combinedValue = combinedRow[combinedIndex];
-                boolean matchFound = baselineData.stream().anyMatch(baselineRow -> {
-                    String baselineValue = baselineRow[baselineIndex];
-                    boolean conditionResult = evaluateCondition(baselineValue, relationFilter.getOperator(), combinedValue);
-                    LOGGER.debug("Evaluating relation filter: {} with baseline value: {}, combined value: {}, result: {}", relationFilter, baselineValue, combinedValue, conditionResult);
-                    return conditionResult;
-                });
+                for (int i = 0; i < baselineData.size(); i++) {
+                    String baselineValue = baselineData.get(i)[baselineIndex];
+                    if (StringUtils.isNotBlank(baselineValue)){
+                        matchFound = evaluateCondition(baselineValue, relationFilter.getOperator(), combinedValue);
+                    }
+                }
+                // boolean matchFound = baselineData.stream().anyMatch(baselineRow -> {
+                //     String baselineValue = baselineRow[baselineIndex];
+                //     boolean conditionResult = evaluateCondition(baselineValue, relationFilter.getOperator(), combinedValue);
+                //     return conditionResult;
+                // });
                 if (!matchFound) {
                     return false;
                 }
