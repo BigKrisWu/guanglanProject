@@ -122,9 +122,7 @@ public class DataFilterService {
             String[] combinedRow;
             while ((combinedRow = reader.readNext()) != null) {
                 // A
-                if (StringUtils.isNotBlank(combinedRow[33]) && StringUtils.isNotBlank(combinedRow[38])){
                     boolean combinedMatch = evaluateFilters(combinedRow, combinedHeaders, combinedFilters);
-
                     boolean relationMatch = false;
                     // B
                     if (!combinedMatch) {
@@ -141,7 +139,6 @@ public class DataFilterService {
                         }
                         filteredData.add(filteredRow);
                     }
-                }
             }
         } catch (IOException | CsvException e) {
             LOGGER.error("过滤组合数据时发生错误: {}", combinedFile, e);
@@ -175,9 +172,7 @@ public class DataFilterService {
                 String combinedValue = combinedRow[combinedIndex];
                 for (int i = 0; i < baselineData.size(); i++) {
                     String baselineValue = baselineData.get(i)[baselineIndex];
-                    if (StringUtils.isNotBlank(baselineValue)){
-                        matchFound = evaluateCondition(baselineValue, relationFilter.getOperator(), combinedValue);
-                    }
+                    matchFound = evaluateCondition(baselineValue, relationFilter.getOperator(), combinedValue);
                 }
                 // boolean matchFound = baselineData.stream().anyMatch(baselineRow -> {
                 //     String baselineValue = baselineRow[baselineIndex];
