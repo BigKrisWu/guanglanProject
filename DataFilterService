@@ -1,15 +1,13 @@
 
-import com.huawei.fiber.constant.RuleConstants;
 import com.huawei.fiber.entity.ConditionModel;
 import com.huawei.fiber.entity.FilterModel;
 import com.huawei.fiber.entity.RuleModel;
 import com.huawei.fiber.utils.ServiceUtil;
 
-import com.opencsv.CSVReader;
-import com.opencsv.CSVWriter;
-import com.opencsv.exceptions.CsvException;
-
-import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVPrinter;
+import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,21 +17,24 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-
+/**
+ * @since 2024/5/24
+ */
 @Component
 public class DataFilterService {
-    private static final Logger LOGGER = LoggerFactory.getLogger(DataFilterService.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(DataFilterService2.class);
     private static final String SRC_TMP_DIR = "/opt/collection/srcTemp/";
+
     public void filterData() throws IOException {
         List<RuleModel> ruleModels = ServiceUtil.getC2DataRules();
         ruleModels.sort(Comparator.comparingInt(RuleModel::getNum));
@@ -62,123 +63,112 @@ public class DataFilterService {
     private String getOriginalFile(String fileName) throws IOException {
         try (Stream<Path> paths = Files.walk(Paths.get(SRC_TMP_DIR))) {
             Optional<Path> matchingFile = paths.filter(Files::isRegularFile)
-                .filter(path -> path.getFileName().toString().contains(fileName))
-                .findFirst();
+                    .filter(path -> path.getFileName().toString().contains(fileName))
+                    .findFirst();
 
             return matchingFile.map(Path::getFileName).map(Path::toString).orElse(null);
         }
     }
+
     private String filterBaselineData(String baselineFile, List<FilterModel> baseFilters, String resultFileName) {
         List<String[]> filteredData = new ArrayList<>();
-        try (CSVReader reader = new CSVReader(new FileReader(baselineFile))) {
-            String[] headers = reader.readNext();
-            String[] ruleHeaders = RuleConstants.RULE_HEADERS.get(1);
-            filteredData.add(ruleHeaders);
+        List<String> headers = new ArrayList<>();
+        try (Reader reader = new FileReader(baselineFile);
+            CSVParser parser = new CSVParser(reader, CSVFormat.DEFAULT.withFirstRecordAsHeader().withIgnoreHeaderCase().withTrim())) {
+            headers = parser.getHeaderNames();
 
-            String[] row;
-            while ((row = reader.readNext()) != null) {
-               final String[] currentRow = row;
+            for (CSVRecord record : parser) {
                 boolean match = baseFilters.stream().allMatch(filter -> {
-                    int index = ArrayUtils.indexOf(headers, filter.getFilterField());
-                    if (index >= 0) {
-                        String value = currentRow[index];
-                        return evaluateCondition(value, filter.getOperator(), filter.getFilterValue());
-                    }
-                    return false;
+                    String value = record.get(filter.getFilterField());
+                    return evaluateCondition(value, filter.getOperator(), filter.getFilterValue());
                 });
 
                 if (match) {
-                    String[] filteredRow = new String[ruleHeaders.length];
-                    for (int i = 0; i < headers.length; i++) {
-                        String header = headers[i];
-                        int index = ArrayUtils.indexOf(ruleHeaders, header);
-                        if (index >= 0) {
-                            filteredRow[index] = row[i];
-                        }
+                    String[] filteredRow = new String[headers.size()];
+                    for (int i = 0; i < headers.size(); i++) {
+                        filteredRow[i] = record.get(i);
                     }
                     filteredData.add(filteredRow);
                 }
             }
-        } catch (IOException | CsvException e) {
+        } catch (IOException e) {
             LOGGER.error("过滤基线数据时发生错误: {}", baselineFile, e);
         }
 
         String resultFilePath = SRC_TMP_DIR + resultFileName + ".csv";
-        writeCSV(resultFilePath, filteredData);
+        writeCSV(resultFilePath, filteredData, headers.toArray(new String[0]));
         return resultFilePath;
     }
 
 
+
     private String filterCombinedData(String baselineResultFile, String combinedFile, List<FilterModel> combinedFilters, List<ConditionModel> relationFilters, String resultFileName) {
-        List<String[]> baselineData = readCSV(baselineResultFile);
-        String[] baselineHeaders = baselineData.get(0);
+        List<CSVRecord> baselineData = readCSV(baselineResultFile);
+        List<String> baselineHeaders = new ArrayList<>(baselineData.get(0).toMap().keySet());
 
         List<String[]> filteredData = new ArrayList<>();
-        filteredData.add(RuleConstants.RULE_HEADERS.get(2));
 
-        try (CSVReader reader = new CSVReader(new FileReader(combinedFile))) {
-            String[] combinedHeaders = reader.readNext();
+        try (Reader reader = new FileReader(combinedFile);
+            CSVParser parser = new CSVParser(reader,
+                CSVFormat.DEFAULT.withFirstRecordAsHeader().withIgnoreHeaderCase().withTrim())) {
+            List<String> combinedHeaders = parser.getHeaderNames();
 
-            String[] combinedRow;
-            while ((combinedRow = reader.readNext()) != null) {
-                // A
-                    boolean combinedMatch = evaluateFilters(combinedRow, combinedHeaders, combinedFilters);
+            for (CSVRecord record : parser) {
+                if (record.isSet(relationFilters.get(0).getCombinedField()) && record.isSet(relationFilters.get(1).getCombinedField()) && record.isSet(combinedFilters.get(0).getFilterField())) {
+                    boolean combinedMatch = evaluateFilters(record, combinedFilters);
                     boolean relationMatch = false;
-                    // B
+
                     if (!combinedMatch) {
-                        relationMatch = evaluateRelationFilters(combinedRow, combinedHeaders, baselineData, baselineHeaders, relationFilters);
+                        relationMatch = evaluateRelationFilters(record, combinedHeaders, baselineData, baselineHeaders, relationFilters);
                     }
 
                     if (combinedMatch || relationMatch) {
-                        String[] filteredRow = new String[RuleConstants.RULE_HEADERS.get(2).length];
-                        for (int j = 0; j < combinedHeaders.length; j++) {
-                            int index = ArrayUtils.indexOf(RuleConstants.RULE_HEADERS.get(2), combinedHeaders[j]);
-                            if (index >= 0) {
-                                filteredRow[index] = combinedRow[j];
-                            }
+                        String[] filteredRow = new String[combinedHeaders.size()];
+                        for (int j = 0; j < combinedHeaders.size(); j++) {
+                            filteredRow[j] = record.get(j);
                         }
                         filteredData.add(filteredRow);
                     }
+                }
             }
-        } catch (IOException | CsvException e) {
+        } catch (IOException e) {
             LOGGER.error("过滤组合数据时发生错误: {}", combinedFile, e);
         }
 
         String resultFilePath = SRC_TMP_DIR + resultFileName + ".csv";
-        writeCSV(resultFilePath, filteredData);
+        writeCSV(resultFilePath, filteredData, baselineHeaders.toArray(new String[0]));
         return resultFilePath;
     }
-    private boolean evaluateFilters(String[] row, String[] headers, List<FilterModel> filters) {
+
+
+    private boolean evaluateFilters(CSVRecord record, List<FilterModel> filters) {
         for (FilterModel filter : filters) {
-            int index = ArrayUtils.indexOf(headers, filter.getFilterField());
-            if (index >= 0) {
-                String value = row[index];
-                boolean conditionResult = evaluateCondition(value, filter.getOperator(), filter.getFilterValue());
-                if (!conditionResult) {
-                    return false;
-                }
+            String value = record.get(filter.getFilterField());
+            boolean conditionResult = evaluateCondition(value, filter.getOperator(), filter.getFilterValue());
+            if (!conditionResult) {
+                return false;
             }
         }
         return true;
     }
 
-    private boolean evaluateRelationFilters(String[] combinedRow, String[] combinedHeaders, List<String[]> baselineData, String[] baselineHeaders, List<ConditionModel> relationFilters) {
+    private boolean evaluateRelationFilters(CSVRecord combinedRecord, List<String> combinedHeaders, List<CSVRecord> baselineData, List<String> baselineHeaders, List<ConditionModel> relationFilters) {
         for (ConditionModel relationFilter : relationFilters) {
-            HashSet<String> set = new HashSet<>();
-            int combinedIndex = ArrayUtils.indexOf(combinedHeaders, relationFilter.getCombinedField());
-            int baselineIndex = ArrayUtils.indexOf(baselineHeaders, relationFilter.getBaseField());
+            int combinedIndex = combinedHeaders.indexOf(relationFilter.getCombinedField());
+            int baselineIndex = baselineHeaders.indexOf(relationFilter.getBaseField());
+
             if (combinedIndex >= 0 && baselineIndex >= 0) {
                 boolean matchFound = false;
-                String combinedValue = combinedRow[combinedIndex];
-                for (int i = 0; i < baselineData.size(); i++) {
-                    String baselineValue = baselineData.get(i)[baselineIndex];
+                String combinedValue = combinedRecord.get(combinedIndex);
+
+                for (CSVRecord baselineRecord : baselineData) {
+                    String baselineValue = baselineRecord.get(baselineIndex);
                     matchFound = evaluateCondition(baselineValue, relationFilter.getOperator(), combinedValue);
+                    if (matchFound) {
+                        break;
+                    }
                 }
-                // boolean matchFound = baselineData.stream().anyMatch(baselineRow -> {
-                //     String baselineValue = baselineRow[baselineIndex];
-                //     boolean conditionResult = evaluateCondition(baselineValue, relationFilter.getOperator(), combinedValue);
-                //     return conditionResult;
-                // });
+
                 if (!matchFound) {
                     return false;
                 }
@@ -186,6 +176,7 @@ public class DataFilterService {
         }
         return true;
     }
+
     private boolean evaluateCondition(String value, String operator, String filterValue) {
         switch (operator) {
             case "=":
@@ -202,45 +193,44 @@ public class DataFilterService {
                 return false;
         }
     }
+
     private void deleteMatchingFiles(RuleModel ruleModel) throws IOException {
         String tableName = StringUtils.isNotBlank(ruleModel.getCombinedTable()) ? ruleModel.getCombinedTable() : ruleModel.getPrimaryTable();
         try (Stream<Path> paths = Files.walk(Paths.get(SRC_TMP_DIR))) {
             paths.filter(Files::isRegularFile)
-                .filter(path -> path.getFileName().toString().contains(tableName))
-                .filter(path -> !path.getFileName().toString().startsWith(tableName))
-                .forEach(path -> {
-                    File file = path.toFile();
-                    if (file.delete()) {
-                        LOGGER.warn("Deleted file: {}", file.getAbsolutePath());
-                    } else {
-                        LOGGER.warn("Failed to delete file: {}", file.getAbsolutePath());
-                    }
-                });
+                    .filter(path -> path.getFileName().toString().contains(tableName))
+                    .filter(path -> !path.getFileName().toString().startsWith(tableName))
+                    .forEach(path -> {
+                        File file = path.toFile();
+                        if (file.delete()) {
+                            LOGGER.warn("Deleted file: {}", file.getAbsolutePath());
+                        } else {
+                            LOGGER.warn("Failed to delete file: {}", file.getAbsolutePath());
+                        }
+                    });
         }
     }
 
-    private List<String[]> readCSV(String filePath) {
-        List<String[]> data = new ArrayList<>();
-        try (CSVReader reader = new CSVReader(new FileReader(filePath))) {
-            String[] row;
-            while ((row = reader.readNext()) != null) {
-                data.add(row);
+    private List<CSVRecord> readCSV(String filePath) {
+        List<CSVRecord> data = new ArrayList<>();
+        try (Reader reader = new FileReader(filePath);
+            CSVParser parser = new CSVParser(reader, CSVFormat.DEFAULT.withFirstRecordAsHeader().withIgnoreHeaderCase().withTrim())) {
+            for (CSVRecord record : parser) {
+                data.add(record);
             }
-        } catch (IOException | CsvException e) {
+        } catch (IOException e) {
             LOGGER.error("Error occurred while reading CSV file: {}", filePath, e.getMessage());
         }
         return data;
     }
 
-    private void writeCSV(String filePath, List<String[]> data) {
-        try (CSVWriter writer = new CSVWriter(new FileWriter(filePath))) {
+    private void writeCSV(String filePath, List<String[]> data, String[] headers) {
+        try (CSVPrinter printer = new CSVPrinter(new FileWriter(filePath), CSVFormat.DEFAULT.withHeader(headers))) {
             for (String[] row : data) {
-                writer.writeNext(row);
+                printer.printRecord((Object[]) row);
             }
         } catch (IOException e) {
             LOGGER.error("Error occurred while writing CSV file: {}", filePath, e.getMessage());
         }
     }
-
-
 }
