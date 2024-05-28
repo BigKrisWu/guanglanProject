@@ -1,7 +1,7 @@
 
 
 
-下面会提供原始JSON、JSON解析和模型定义，后续的功能需要你理解需求和图片后来实现：
+下面会提供原始JSON、JSON解析和模型定义，后续的功能需要你理解需求后来实现：
 
 String res ="{\n" + "  \"start\": 0,\n" + "  \"limit\": 100,\n" + "  \"total\": 2,\n" + "  \"results\": [\n"
 	+ "    {\n" + "      \"id\": \"640c0ff0-13f2-11ef-9f12-0255ac1200a0\",\n"
@@ -136,15 +136,6 @@ public class RuleModel {
     private List<ConditionModel> relationFilters;
 }
 
-例子：
-    规则1、原始文件mod-1742848231-732770695_D_RNT_IRM_IV_OTN_D_20231213000000.csv
-	过滤条件： EQUIPLEVEL ="5"    
-	结果文件：D_RNT_IRM_IV_OTN_D.CSV                   
-
-	规则2、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_OPTICALCIRCUIT_D_20230530000000.csv
-	过滤条件 规则1的结果文件中ID contains AENDDEVICE_ID && ID contains ZENDDEVICE_ID || CIRCUITLEVEL="6"
-	结果文件  D_RNT_IRM_IV_OPTICALCIRCUIT_D.CSV  
-
 需求说明：
 	规则按照解析后的num字段来顺序执行
 	1、	规则1：
@@ -157,20 +148,55 @@ public class RuleModel {
 	3、如果配置的关联表不为空或null，则使用它作为生成的csv结果文件，否则使用基线表作为CSV结果文件，并删除包含它的原始文件，需要从/opt/collection/srcTmp固定目录中找。
 	4、关联表过滤条件 operator 包含"="、"!="、"is empty"、"is not empty"，关联条件 operator包含 "="、"contains",每一个都需要实现。
 
+例子：
+规则1、原始文件mod-1742848231-732770695_D_RNT_IRM_IV_OTN_D_20231213000000.csv
+过滤条件： EQUIPLEVEL ="5"    
+结果文件：D_RNT_IRM_IV_OTN_D.CSV                   
 
-    private static final Map<Integer,String[]> RULE_HEADERS = new HashMap<>(13);
+规则2、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_OPTICALCIRCUIT_D_20230530000000.csv
+过滤条件 上一步的结果文件中ID contains AENDDEVICE_ID 并且ID contains ZENDDEVICE_ID 或者 CIRCUITLEVEL="6" 
+结果文件  D_RNT_IRM_IV_OPTICALCIRCUIT_D.CSV        
 
-    static {
-        RULE_HEADERS.put(1,new String[]{
-            "ID", "NAME", "EQUIPLEVEL", "EQUIPMENTVENDOR_ID", "ENTITYTYPE_ID", "PREFECTURE_ID", "COUNTY_ID", "TOWNSHIP_ID",
-            "SITE_ID", "ROOM_ID", "STRONGHOLD_ID", "NODE_ID", "PARENTDEVICE_ID"
-        });
-        RULE_HEADERS.put(2,new String[]{
-            "PREFECTURE_ID", "TOWNSHIP_ID", "NAME", "COUNTY_ID", "ID", "CARRYSYSTEM", "CIRCUITLEVEL", "ZENDPORT_ID",
-            "AENDPORTNAME", "ZENDDEVICENAME", "AENDDDFCONNECTOR_ID", "AENDDEVICENAME", "ZENDSTRONGHOLD_ID",
-            "ZENDACCESSROOMDEVICEPORT", "AENDROOM_ID", "AENDSTRONGHOLD_ID", "ZENDDEVICE_ID", "ZENDPORTNAME",
-            "ZENDDDFCONNECTORNAME", "AENDPORT_ID", "AENDSITE_ID", "AENDACCESSROOMDEVICENAME", "ZENDACCESSROOMDEVICEODFPORT",
-            "ZENDDDFCONNECTOR_ID", "AENDACCESSROOMDEVICEPORT", "ZENDROOM_ID", "ZENDSITE_ID", "ZENDACCESSROOMDEVICENAME",
-            "AENDDDFCONNECTORNAME", "AENDDEVICE_ID", "AENDACCESSROOMDEVICEODFPORT"
-        });
-    }
+3、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_CIRCUITASSIGN_D_20230530000000.csv
+过滤条件  上一步的结果文件中ID contains PARENTCIRCUIT_ID 并且 CHILDCIRCUIT_ID 不为空
+结果文件  D_RNT_IRM_IV_CIRCUITASSIGN_D.CSV         
+
+4、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_LOGICALFIBERCIR_D_20230530000000.csv
+过滤条件 上一步的结果文件中CHILDCIRCUIT_ID contains ID 
+结果文件  D_RNT_IRM_IV_LOGICALFIBERCIR_D.CSV      
+
+5、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_OCCP_D_20230530000000.csv
+过滤条件 上一步的结果文件中AENDDEVICE_ID contains ID 或者 ZENDDEVICE_ID contains ID 并且 ID是唯一的
+结果文件  D_RNT_IRM_IV_OCCP_D.CSV                          
+
+6、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_CIRCUITLINK_D_20230530000000.csv
+过滤条件 上一步的结果文件中ID contains CIRCUIT_ID 并且 LINK_ID不为空
+结果文件  D_RNT_IRM_IV_CIRCUITLINK_D.CSV              
+
+7、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_FIBER_D_20230530000000.csv
+过滤条件  上一步的结果文件中LINK_ID contains ID
+结果文件   D_RNT_IRM_IV_FIBER_D.CSV                          
+
+8、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_OPTCABLESECTION_D_20230530000000.csv
+过滤条件  上一步的结果文件中LINKBUNDLE_ID contains ID
+结果文件  D_RNT_IRM_IV_0PTCABLESECTION_D.CSV     
+
+9、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_OPTICALCABLE_D_20230530000000.csv
+过滤条件 上一步的结果文件中CABLE_ID contains ID
+结果文件  D_RNT_IRM_IV_0PTICALCABLE_D.CSV            
+
+10、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_CABLELAYING_D_20230530000000.csv
+过滤条件 上一步的结果文件中ID contains LINKBUNDLE_ID 并且 SEGMENT_ID不为空
+结果文件  D_RNT_IRM_IV_CABLELAYING_D.CSV
+
+11、原始文件 108dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_SEGMENT_D_20230530000000.csv
+过滤条件 上一步的结果文件中SEGMENT_ID contains ID
+结果文件  D_RNT_IRM_IV_SEGMENT D.CSV                    
+
+12、原始文件 208dcff41c144b488f08c9b502de222d_D_RNT_IRM_IV_JOINT_D_20230530000000.csv
+过滤条件 上一步的结果文件中AENDJOINT_ID contains ID 或者 ZENDJOINT_ID contains ID 并且ID是唯一的
+结果文件  D_RNT_IRM_IV_JOINT_D.CSV                         
+
+13、原始文件 208dcff41c144b488f08c9b502de222d_D_RLC_IRM_IV_STRONGHOLD_D_20230530000000.csv
+过滤条件 上一步的结果文件中AENDLOCATION_ID contains ID 或者 ZENDLOCATION_ID contains ID 并且ID是唯一的
+结果文件  D_RNT_IRM_IV_STRONGHOLD_D.CSV 
