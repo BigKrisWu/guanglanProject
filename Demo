@@ -22,4 +22,8 @@
 
 
 
-	    'values()' is not public in 'org.apache.commons.csv.CSVRecord'. Cannot be accessed from outside package 
+在applyRuleFilters方法中，没有实现同组是"且"的关系，不同组是"或"的关系，且只适用于关联表过滤条件和关联条件中的group_name
+举例：
+关联表中的group_name是"A" ，关联表过滤条件为 CIRCUITLEVEL="6" 
+关联条件中的group_name都是"B"，第一个关联条件ID contains AENDDEVICE_ID ，第二个关联条件ID contains ZENDDEVICE_ID，
+组合在一起为:ID contains AENDDEVICE_ID && ID contains ZENDDEVICE_ID || CIRCUITLEVEL="6" 
