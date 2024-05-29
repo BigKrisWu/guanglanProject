@@ -22,8 +22,11 @@
 
 
 
-在applyRuleFilters方法中，没有实现同组是"且"的关系，不同组是"或"的关系，且只适用于关联表过滤条件和关联条件中的group_name
+在纠正一下，准确理解我的需求：
+可以在applyRuleFilters方法中,if(combinedFile != null)这个条件判断中获取到关联表的过滤条件和关联条件，并判断这些条件的group_name
+是否属于同组，如果是同组则它们的关系是"且"的关系，否则是"或"的关系
 举例：
-关联表中的group_name是"A" ，关联表过滤条件为 CIRCUITLEVEL="6" 
-关联条件中的group_name都是"B"，第一个关联条件ID contains AENDDEVICE_ID ，第二个关联条件ID contains ZENDDEVICE_ID，
-组合在一起为:ID contains AENDDEVICE_ID && ID contains ZENDDEVICE_ID || CIRCUITLEVEL="6" 
+关联表中的group_name是"A" ，关联表过滤条件为 CIRCUITLEVEL="6" ;
+关联条件中有两个条件,第一个关联条件ID contains AENDDEVICE_ID ，第二个关联条件ID contains ZENDDEVICE_ID，group_name都是"B"，
+组合在一起为: (ID contains AENDDEVICE_ID && ID contains ZENDDEVICE_ID ) || CIRCUITLEVEL="6" 
+数据满足任意条件就可以写到结果表中。
