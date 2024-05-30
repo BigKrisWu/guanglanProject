@@ -30,3 +30,9 @@
 关联条件中有两个条件,第一个关联条件ID contains AENDDEVICE_ID ，第二个关联条件ID contains ZENDDEVICE_ID，group_name都是"B"，
 组合在一起为: (ID contains AENDDEVICE_ID && ID contains ZENDDEVICE_ID ) || CIRCUITLEVEL="6" 
 数据满足任意条件就可以写到结果表中。
+
+
+我需要你对handleFileSync方法进行优化，此方法执行上传和下载是串行执行的，我需要多线程并行执行，把修改的代码展示出即可。
+需要注意：
+1、同一个文件在下载完成才可以执行上传操作。
+2、多个下载和上传sftp客户端都是独立的。
