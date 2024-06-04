@@ -16,7 +16,6 @@ import org.apache.sshd.sftp.common.SftpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -89,6 +88,7 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
     public static final Pattern CONTINUATIVE_NUM_PATTERN = Pattern.compile("(\\d{14})"); // 匹配连续的14位数字
 
     public static Map<String, String> map = new HashMap<>(3);
+    public static Set<String> filesUpdateSet = new HashSet<>();
 
     private static final List<String> processList = Arrays.asList("_SEGMENT_", "_STRONGHOLD_", "_CABLELAYING_",
             "_CIRCUITASSIGN_", "_CIRCUITLINK_", "_FIBER_", "_JOINT_", "_LOGICALFIBERCIR_", "_OCCP_", "_OPTCABLESECTION_",
@@ -119,9 +119,51 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         checkAndCreateDirectory(LOCALTEMPDIR);
         SftpClient srcSftpClient = createSftpClient(remoteIp, username, password, port);
         List<String> recentDirs = getRecentDirs(srcSftpClient, remoteDir, maxDirSize);
-        return handleFileSync(recentDirs, map.get("src"), map.get("pro"));
+        handleFileSync(recentDirs, map.get("src"), map.get("pro"));
+        return isPreprocessingRequired(map.get("src"),filesUpdateSet);
     }
 
+    private Set<String> getRemoteSrcFiles(SftpClient sftpClient, List<String> srcDirs) {
+        Set<String> srcFiles = new HashSet<>();
+        try {
+            for (String srcDir : srcDirs) {
+                Iterable<SftpClient.DirEntry> dirEntries = sftpClient.readDir(srcDir);
+                for (SftpClient.DirEntry dirEntry : dirEntries) {
+                    if(dirEntry.getAttributes().isRegularFile()){
+                        String filePath = srcDir + File.separator + dirEntry.getFilename();
+                        srcFiles.add(filePath);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            LOGGER.error("[OCDCollectionService][retrieveSrcFiles]Error retrieving source files", e);
+        }
+        return srcFiles;
+    }
+
+    private boolean isPreprocessingRequired(String srcDir, Set<String> filesUpdateSet) {
+        try (SftpClient srcSftp = createSftpClient(remoteIp, username, password, port)) {
+            Set<String> currentFiles = getRemoteSrcFiles(srcSftp, Collections.singletonList(srcDir));
+
+            // 过滤出processList中的文件
+            Set<String> filteredFiles = filesUpdateSet.stream()
+                .filter(file -> isFileInProcessList(file))
+                .collect(Collectors.toSet());
+
+            if (filteredFiles.equals(currentFiles)) {
+                return false; //说明有更新
+            } else {
+                return true;
+            }
+        } catch (IOException e) {
+            LOGGER.error("[OCDCollectionService][isPreprocessingRequired]Error checking preprocessing files", e);
+            return true;
+        }
+    }
+
+    private boolean isFileInProcessList(String file) {
+       return processList.contains(file);
+    }
     @Override
     public JSONObject uploadResultFiles(String localDirectoryPath, String remoteDirectoryPath) throws IOException {
         JSONObject result = new JSONObject();
@@ -232,7 +274,7 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         }
     }
 
-    private boolean handleFileSync(List<String> srcDir, String destSrcDir, String destProDir) {
+    private void handleFileSync(List<String> srcDir, String destSrcDir, String destProDir) {
         int maxConcurrentDownloads = 3;
         int maxConcurrentUploads = 3;
         ExecutorService downloadExecutor = Executors.newFixedThreadPool(maxConcurrentDownloads);
@@ -244,15 +286,16 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
             if (!checkFileAndFreeSpace(srcSftp, srcFiles, LOCALTEMPDIR, Constants.CHECK_FOR_SRC)) {
                 LOGGER.error("[OCDCollectionService][handleFileSync] The remaining space on the host-{} is less than {} GB or file to download size exceeds {} GB, terminate the task.",
                         remoteIp, Constants.MIN_FREE_SPACE, Constants.MAX_FILE_SIZE);
-                return false;
+                // return false;
             }
             Set<String> destFiles = retrieveDestFiles(destSftp, destSrcDir, destProDir);
             Set<String> filesToUpdate = determineFilesToUpdate(destSftp, srcFiles, destFiles);
+            filesUpdateSet.addAll(filesToUpdate);
             // 对待推送的文件，统计大小并检验对端磁盘剩余空间 校验文件和磁盘剩余空间
             if (!checkFileAndFreeSpace(srcSftp, filesToUpdate, sftp_remoteDir, Constants.CHECK_FOR_DEST)) {
                 LOGGER.error("[OCDCollectionService][handleFileSync] The remaining space on the host-{} is less than {} GB or file size to upload exceeds {} GB, terminate the task.",
                         remoteIp, Constants.MIN_FREE_SPACE, Constants.MAX_FILE_SIZE);
-                return false;
+                // return false;
             }
             Map<String, Future<?>> downloadTasks = new HashMap<>();
             Map<String, Future<?>> uploadTasks = new HashMap<>();
@@ -320,11 +363,11 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
             }
             waitForTasksCompletion(downloadTasks.values());
             waitForTasksCompletion(uploadTasks.values());
-            return true;
+            // return true;
         }  catch (IOException e) {
             LOGGER.error("[OCDCollectionService][handleFileSync]Error initializing file synchronization");
         }
-        return false;
+        // return false;
     }
 
     private long getRetryInterval(int retryCount) {
