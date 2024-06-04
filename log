@@ -2,3 +2,6 @@
 否则执行预处理逻辑。
 
 在synchronizeFiles方法中，handFileSync方法执行完之后就应该去比较了，返回一个boolean类型方法，根据TRUE和FALSE来确定是否要执行预处理逻辑。
+
+在handleFileSync方法中 Set<String> filesToUpdate = determineFilesToUpdate(destSftp, srcFiles, destFiles);拿到了所有的待更新的文件，但是需要先过滤出processList中的文件，
+拿过滤后的文件再和currentFiles集合中的文件比较。
