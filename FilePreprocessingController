@@ -1,42 +1,84 @@
+import com.huawei.fiber.config.AppProperties;
+import com.huawei.fiber.constant.CodeStatus;
+import com.huawei.fiber.resp.ResponseResult;
+import com.huawei.fiber.service.DataFilterService;
+import com.huawei.fiber.service.DataProcessingService;
+import com.huawei.fiber.service.FileSynchronizationService;
+import com.huawei.fiber.service.impl.FileSynchronizationServiceImpl;
+import com.huawei.ows.sdk.base.cse.GdeCseConstant;
 
+import com.alibaba.fastjson.JSONObject;
+
+import io.swagger.annotations.Api;
+
+import org.apache.servicecomb.provider.rest.common.RestSchema;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.concurrent.locks.ReentrantLock;
+
+/**
+ * 包含文件下载和处理调用
+ *
+ * @since 2024/3/13
+ */
 @RestController
 @RestSchema(schemaId = "fileProcess")
-@RequestMapping(ServiceConstants.SERVICE_URL_PREFIX + "/nebulatool")
-@Api(tags = ServiceConstants.SERVICE_PUBLIC_API_TAG)
+@RequestMapping(GdeCseConstant.SERVICE_URL_PREFIX + "/nebulatool")
+@Api(tags = GdeCseConstant.SERVICE_PUBLIC_API_TAG)
 public class FilePreprocessingController {
     private static final Logger LOGGER = LoggerFactory.getLogger(FilePreprocessingController.class);
-    @Autowired
-    private FileDownloadService fileDownloadService;
+
     @Autowired
     private AppProperties appProperties;
 
     @Autowired
     private FileSynchronizationService fileSynchronizationService;
+
     @Autowired
     private DataProcessingService dataProcessingService;
+
+    @Autowired
+    private DataFilterService dataFilterService;
+
     private static final ReentrantLock REENTRANT_LOCK = new ReentrantLock();
 
     @GetMapping("/downloadAndProcess")
-    public String processData() {
+    public ResponseResult<JSONObject> processData() {
         boolean isLocked = false;
+        JSONObject result;
         try {
             if (REENTRANT_LOCK.isLocked()) {
-                return "task is running";
+                return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(), "Current preprocessing task conflicts, thread locked, please wait for execution completion and try again.");
             }
             REENTRANT_LOCK.lock();
             isLocked = true;
             FileSynchronizationServiceImpl.fetchConfigFromPage();
             appProperties.fetchPathFromPage();
-            fileSynchronizationService.synchronizeFiles();
-            dataProcessingService.processData();
-            return "All data processed successfully!";
+            if (fileSynchronizationService.synchronizeFiles()) {
+                dataFilterService.filterData();
+            } else {
+                LOGGER.warn("The preprocessing file is not updated , No processing ");
+            }
+            result = fileSynchronizationService.uploadResultFiles(FileSynchronizationServiceImpl.LOCALTEMPDIR, FileSynchronizationServiceImpl.map.get("col"));
+            if (result.containsKey(CodeStatus.SUCCESS.getValue())) {
+                return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(), result.getString(CodeStatus.SUCCESS.getValue()));
+            } else {
+                return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(), result.getString(CodeStatus.FAILED.getValue()));
+            }
         } catch (Exception e) {
-            e.printStackTrace();
-            return "Data processing failed: " + e.getMessage();
+            LOGGER.error("processData failed, msg: {}", e.getMessage());
+            return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(), "task is failed !!");
         } finally {
-            if(isLocked){
+            if (isLocked) {
                 REENTRANT_LOCK.unlock();
             }
         }
     }
 }
+
