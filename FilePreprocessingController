@@ -1,3 +1,12 @@
+
+结合提供的图片这个需求是后端传递信息给前端，程序调用该接口就异步返回信息(补充状态、结束时间、日志内容)，同时另一个线程去执行其他方法。
+状态：成功、失败、运行时
+结束时间：获取系统的时间
+日志内容：成功无内容，失败返回失败日志内容。
+在processData方法中补充。
+
+以下是提供的FilePreprocessingController类：
+
 import com.huawei.fiber.config.AppProperties;
 import com.huawei.fiber.constant.CodeStatus;
 import com.huawei.fiber.resp.ResponseResult;
