@@ -40,3 +40,9 @@ private static final List<String> processList = Arrays.asList("_SEGMENT_", "_STR
 Set<String> filteredFiles = extractFileNames(filesUpdateSet).stream()
 	.filter(this::isFileInProcessList)
 	.collect(Collectors.toSet());
+
+
+
+
+你的任务是分析提供的JAVA代码，并提出改进建议以优化其性能。确定可以使代码更高效、更快或更节省资源的地方。
+提供具体的优化建议，并解释这些更改如何提高代码的性能。优化后的代码应该保持与原始代码相同的功能，同时展示出更高的效率。
