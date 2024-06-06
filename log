@@ -10,3 +10,7 @@
 执行isPreprocessingRequired方法时，第一次不需要filteredFiles和currentFiles比较，因为debug发现第一次执行时，获取到的这两个集合中的文件相同（特殊）。
 所以!filteredFiles.equals(currentFiles);会返回FALSE，从而不执行后续的预处理任务(第一次肯定要执行预处理任务)。如果filteredFiles集合中的文件还是没有更新，那么再次比较时跟
 currentFiles集合中的文件一致，这时!filteredFiles.equals(currentFiles);返回FALSE是正确的。
+
+写一个方法只保留文件名 
+之前：/opt/cir_data/zk/20240606/files/mod-1742848231-1061242904_D_RNT_IRM_IV_CIRCUITASSIGN_D_20240120000000.csv
+之后：mod-1742848231-1061242904_D_RNT_IRM_IV_CIRCUITASSIGN_D_20240120000000.csv
