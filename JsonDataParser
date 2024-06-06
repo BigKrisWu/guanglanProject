@@ -1,0 +1,74 @@
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.huawei.fiber.entity.ConditionModel;
+import com.huawei.fiber.entity.FilterModel;
+import com.huawei.fiber.entity.RuleModel;
+import com.huawei.mateinfo.sdk.jsonf.JSONArray;
+import com.huawei.mateinfo.sdk.jsonf.JSONObject;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+
+public class JsonDataParser {
+
+    public static List<RuleModel> parseJson(JSONArray jsonArray) throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        List<RuleModel> ruleModels = new ArrayList<>();
+
+        for (int i = 0; i < jsonArray.length(); i++) {
+            JSONObject jsonObject = jsonArray.getJSONObject(i);
+            RuleModel ruleModel = new RuleModel();
+            ruleModel.setNum(jsonObject.getInt("num"));
+            ruleModel.setRuleName(jsonObject.getString("rule_name"));
+            ruleModel.setPrimaryTable(jsonObject.getString("primary_table"));
+            ruleModel.setCombinedTable(getOrDefaultString(jsonObject, "combined_table", ""));
+
+            String baseFilterString = jsonObject.getString("base_filter");
+            JSONArray baseFilterArray = new JSONArray(baseFilterString);
+            List<FilterModel> baseFilters = analyseFilter(baseFilterArray);
+            ruleModel.setBaseFilters(baseFilters);
+
+            String combinedFilterString = jsonObject.getString("combined_filter");
+            JSONArray combinedFilterArray = new JSONArray(combinedFilterString);
+            List<FilterModel> combinedFilters = analyseFilter(combinedFilterArray);
+            ;
+            ruleModel.setCombinedFilters(combinedFilters);
+
+            String relationFilterString = jsonObject.getString("relation_filter");
+            JSONArray relationFilterArray = new JSONArray(relationFilterString);
+            List<ConditionModel> relationFilters = analyseRelationFilter(relationFilterArray);
+            ruleModel.setRelationFilters(relationFilters);
+
+            ruleModels.add(ruleModel);
+        }
+
+        return ruleModels;
+    }
+
+    private static List<ConditionModel> analyseRelationFilter(JSONArray relationFilterArray) {
+        List<ConditionModel> conditionModels = new ArrayList<>();
+        for (int i = 0; i < relationFilterArray.length(); i++) {
+            JSONObject item = relationFilterArray.getJSONObject(i);
+            conditionModels.add(new ConditionModel(item.getString("group_name"), item.getString("base_field"), item.getString("operator"),
+                    item.getString("combined_field"), item.getString("rule_id"), item.getString("filter_flag")));
+        }
+        return conditionModels;
+    }
+
+    private static List<FilterModel> analyseFilter(JSONArray baseFilterArray) {
+        List<FilterModel> filterModels = new ArrayList<>();
+        for (int i = 0; i < baseFilterArray.length(); i++) {
+            JSONObject item = baseFilterArray.getJSONObject(i);
+            filterModels.add(new FilterModel(item.getString("group_name"), item.getString("filter_field"), item.getString("operator"),
+                    item.getString("filter_value"), item.getString("rule_id"), item.getString("filter_flag")));
+        }
+        return filterModels;
+    }
+
+    public static String getOrDefaultString(JSONObject json, String key, String defaultValue) {
+        return json.containsKey(key) ? json.getString(key) : defaultValue;
+    }
+}
