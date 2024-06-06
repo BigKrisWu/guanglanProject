@@ -1,0 +1,36 @@
+
+package com.huawei.fiber.entity;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+/**
+ * 规则模型
+ *
+ * @since 2024/5/18
+ */
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class RuleModel {
+    private int num;
+    @JsonProperty("rule_name")
+    private String ruleName;
+    @JsonProperty("primary_table")
+    private String primaryTable;
+
+    @JsonProperty("combined_table")
+    private String combinedTable;
+    @JsonProperty("base_filter")
+    private List<FilterModel> baseFilters;
+
+    @JsonProperty("combined_filter")
+    private List<FilterModel> combinedFilters;
+    @JsonProperty("relation_filter")
+    private List<ConditionModel> relationFilters;
+}
