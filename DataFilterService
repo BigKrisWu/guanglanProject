@@ -5,9 +5,11 @@ import com.huawei.fiber.entity.FilterModel;
 import com.huawei.fiber.entity.RuleModel;
 import com.huawei.fiber.utils.ServiceUtil;
 import com.huawei.us.common.file.UsFileUtils;
+
 import com.opencsv.CSVReader;
 import com.opencsv.CSVWriter;
 import com.opencsv.exceptions.CsvException;
+
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -37,8 +39,8 @@ import java.util.stream.Stream;
  * @since 2024/5/31
  */
 @Component
-public class DataFilterService {
-    private static final Logger LOGGER = LoggerFactory.getLogger(DataFilterService.class);
+public class DataFilterService2 {
+    private static final Logger LOGGER = LoggerFactory.getLogger(DataFilterService2.class);
     private static final String SRC_TMP_DIR = "/opt/collection/srcTemp/";
     private static final AtomicInteger ruleStage = new AtomicInteger(0);
 
@@ -82,6 +84,7 @@ public class DataFilterService {
     }
 
     private void filterBaselineData(String baselineFile, List<FilterModel> baseFilters, String resultFileName) {
+
         List<String[]> filteredData = new ArrayList<>();
         try (CSVReader reader = new CSVReader(UsFileUtils.getFileReader(baselineFile))) {
             String[] headers = reader.readNext();
@@ -126,6 +129,7 @@ public class DataFilterService {
 
     private void filterCombinedData(String baselineResultFile, String combinedFile, List<FilterModel> combinedFilters,
                                     List<ConditionModel> relationFilters, String resultFileName) {
+
         List<String[]> baselineData = readCSV(baselineResultFile);
         String[] baselineHeaders = baselineData.get(0);
 
@@ -194,9 +198,10 @@ public class DataFilterService {
             for (ConditionModel cm : relationFiltersNew) {
                 int baseIndex = ArrayUtils.indexOf(baseHeader, cm.getBaseField());
                 Set<String> collected = baselineData.stream().map(strings -> baseIndex < strings.length ? strings[baseIndex].trim().replaceAll("^\"|\"$", "") : "").collect(Collectors.toSet());
+                Set<String> standardBasedValue = collected.stream().map(this::standardFromID).collect(Collectors.toSet());
                 String key = groupName + "-" + cm.getBaseField();
                 if (!res.containsKey(key)) {
-                    res.put(key, collected);
+                    res.put(key, standardBasedValue);
                 }
             }
         }
@@ -277,7 +282,8 @@ public class DataFilterService {
         return true;
     }
 
-    private boolean evaluateConnCondition(Set<String> baseValue, String operator, String value) {
+    private boolean evaluateConnCondition(Set<String> baseValue, String operator, String combinedValue) {
+        String value = standardFromID(combinedValue);
         // contains表达的应该是包含ID，能关联上的意思  页面的=操作符没有作用
         return baseValue.contains(value);
     }
@@ -297,6 +303,9 @@ public class DataFilterService {
             default:
                 return false;
         }
+    }
+    private String standardFromID(String id) {
+        return id.replaceAll("\\.\\d+$", "");
     }
 
     private void deleteMatchingFiles(RuleModel ruleModel) throws IOException {
