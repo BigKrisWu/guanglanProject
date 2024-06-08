@@ -24,7 +24,7 @@ public class RuleConstants {
                 "CHILDCIRCUIT_ID", "VERSION", "OUTERORDINAL", "WORKMETHOD", "IDINHOTU_", "IDINGRANITE_",
                 "OBJECTTYPEINGRANITE_"
         });
-    ...
+   // 省略其他
 
     }
 }
