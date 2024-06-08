@@ -1,7 +1,5 @@
-
-package com.huawei.fiber.constant;
-import java.util.HashMap;
-import java.util.Map;
+使用最开始提供的DataFilterService类，将其中的RuleConstants.RULE_HEADERS.get(ruleStage.get())替换成从原始文件中获取表头，而不是用事先定义好的。
+修改后的功能要与原始功能保持一致，将修改后的DataFilterService类完整输出，下面是提供了该类。
 
 public class RuleConstants {
 
