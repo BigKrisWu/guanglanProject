@@ -1,0 +1,9 @@
+
+@Data
+@AllArgsConstructor
+public class TaskStatus {
+    private String log_id;
+    private String log_state;
+    private Long finish_time;
+    private String content;
+}
