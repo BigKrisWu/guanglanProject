@@ -1,15 +1,14 @@
-
-结合提供的图片这个需求是后端传递信息给前端，程序调用该接口就异步返回信息(补充状态、结束时间、日志内容)，同时另一个线程去执行其他方法。
-状态：成功、失败、运行时
-结束时间：获取系统的时间
-日志内容：成功无内容，失败返回失败日志内容。
-在processData方法中补充。
-
-以下是提供的FilePreprocessingController类：
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2024-2024. All rights reserved.
+ */
 
 package com.huawei.fiber.controller;
+
+import static com.huawei.fiber.service.impl.FileSynchronizationServiceImpl.clearLocalTempDir;
+
 import com.huawei.fiber.config.AppProperties;
 import com.huawei.fiber.constant.CodeStatus;
+import com.huawei.fiber.constant.TaskStatus;
 import com.huawei.fiber.resp.ResponseResult;
 import com.huawei.fiber.service.DataFilterService;
 import com.huawei.fiber.service.DataProcessingService;
@@ -28,8 +27,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -43,55 +46,65 @@ import java.util.concurrent.locks.ReentrantLock;
 @Api(tags = GdeCseConstant.SERVICE_PUBLIC_API_TAG)
 public class FilePreprocessingController {
     private static final Logger LOGGER = LoggerFactory.getLogger(FilePreprocessingController.class);
-
     @Autowired
     private AppProperties appProperties;
-
     @Autowired
     private FileSynchronizationService fileSynchronizationService;
-
     @Autowired
     private DataProcessingService dataProcessingService;
-
     @Autowired
     private DataFilterService dataFilterService;
-
     private static final ReentrantLock REENTRANT_LOCK = new ReentrantLock();
+    private static final ConcurrentHashMap<String, TaskStatus> TASK_STATUS_MAP = new ConcurrentHashMap<>();
+
 
     @GetMapping("/downloadAndProcess")
-    public ResponseResult<JSONObject> processData() {
-        boolean isLocked = false;
-        JSONObject result;
-        try {
-            if (REENTRANT_LOCK.isLocked()) {
-                return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(),
-                    "Current preprocessing task conflicts, thread locked, please wait for execution completion and try again.");
-            }
+    public ResponseResult<JSONObject> processData(@RequestParam String log_id) {
+
+        TASK_STATUS_MAP.put(log_id, new TaskStatus("RUNNING", null, null));
+        if (REENTRANT_LOCK.isLocked()) {
+            return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(),
+                "Current preprocessing task conflicts, thread locked, please wait for execution completion and try again.");
+        } else {
             REENTRANT_LOCK.lock();
-            isLocked = true;
-            FileSynchronizationServiceImpl.fetchConfigFromPage();
-            appProperties.fetchPathFromPage();
-            if (fileSynchronizationService.synchronizeFiles()) {
-                dataFilterService.filterData();
-            } else {
-                LOGGER.warn("The preprocessing file is not updated , No processing ");
-            }
-            // 删除文件需放到finally里
-            result = fileSynchronizationService.uploadResultFiles(FileSynchronizationServiceImpl.LOCALTEMPDIR,
-                FileSynchronizationServiceImpl.map.get("col"));
-            if (result.containsKey(CodeStatus.SUCCESS.getValue())) {
-                return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(), result.getString(CodeStatus.SUCCESS.getValue()));
-            } else {
-                return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(), result.getString(CodeStatus.FAILED.getValue()));
-            }
-        } catch (Exception e) {
-            LOGGER.error("processData failed, msg: {}", e.getMessage());
-            return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(), "task is failed !!");
-        } finally {
-            if (isLocked) {
+        }
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                FileSynchronizationServiceImpl.fetchConfigFromPage();
+                appProperties.fetchPathFromPage();
+                if (fileSynchronizationService.synchronizeFiles()) {
+                    dataFilterService.filterData();
+                } else {
+                    LOGGER.warn("The preprocessing file is not updated , No processing ");
+                }
+                JSONObject result = fileSynchronizationService.uploadResultFiles(
+                    FileSynchronizationServiceImpl.LOCALTEMPDIR, FileSynchronizationServiceImpl.PATH_MAP.get("col"));
+                if (result.containsKey(CodeStatus.SUCCESS.getValue())) {
+                    updateTaskStatus(log_id, "SUCCESS", getCurrentTimestampMillis(), null);
+                } else {
+                    updateTaskStatus(log_id, "FAILED", getCurrentTimestampMillis(), result.getString(CodeStatus.FAILED.getValue()));
+                }
+            } catch (Exception e) {
+                LOGGER.error("processData failed, msg: {}", e.getMessage());
+                updateTaskStatus(log_id, "FAILED", getCurrentTimestampMillis(), e.getMessage());
+            } finally {
+                clearLocalTempDir();
                 REENTRANT_LOCK.unlock();
             }
+        });
+
+      return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(),"task is success");
+    }
+    private void updateTaskStatus(String log_id, String log_state, Long finish_time, String content) {
+        TaskStatus taskStatus = TASK_STATUS_MAP.get(log_id);
+        if (taskStatus != null) {
+            taskStatus.setLog_state(log_state);
+            taskStatus.setFinish_time(finish_time);
+            taskStatus.setContent(content);
         }
     }
+    private long getCurrentTimestampMillis() {
+        return Instant.now().toEpochMilli();
+    }
 }
-
