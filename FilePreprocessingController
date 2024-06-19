@@ -1,13 +1,7 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2024-2024. All rights reserved.
- */
-
-package com.huawei.fiber.controller;
-
 import static com.huawei.fiber.service.impl.FileSynchronizationServiceImpl.clearLocalTempDir;
-
 import com.huawei.fiber.config.AppProperties;
 import com.huawei.fiber.constant.CodeStatus;
+import com.huawei.fiber.constant.LogRequest;
 import com.huawei.fiber.constant.TaskStatus;
 import com.huawei.fiber.resp.ResponseResult;
 import com.huawei.fiber.service.DataFilterService;
@@ -25,9 +19,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
@@ -57,13 +51,12 @@ public class FilePreprocessingController {
     private static final ReentrantLock REENTRANT_LOCK = new ReentrantLock();
     private static final ConcurrentHashMap<String, TaskStatus> TASK_STATUS_MAP = new ConcurrentHashMap<>();
 
-
-    @GetMapping("/downloadAndProcess")
-    public ResponseResult<JSONObject> processData(@RequestParam String log_id) {
-
-        TASK_STATUS_MAP.put(log_id, new TaskStatus("RUNNING", null, null));
+    @RequestMapping(value = "/downloadAndProcess", method = RequestMethod.POST, produces = "application/json;charset=UTF-8")
+    public ResponseResult<JSONObject> processData(@RequestBody LogRequest logRequest) {
+        String log_id = logRequest.getLogId();
+        TASK_STATUS_MAP.put( log_id, new TaskStatus(log_id,"RUNNING", null, null));
         if (REENTRANT_LOCK.isLocked()) {
-            return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(),
+            return new ResponseResult<>(HttpStatus.BAD_REQUEST.value(), new JSONObject(),
                 "Current preprocessing task conflicts, thread locked, please wait for execution completion and try again.");
         } else {
             REENTRANT_LOCK.lock();
@@ -81,7 +74,7 @@ public class FilePreprocessingController {
                 JSONObject result = fileSynchronizationService.uploadResultFiles(
                     FileSynchronizationServiceImpl.LOCALTEMPDIR, FileSynchronizationServiceImpl.PATH_MAP.get("col"));
                 if (result.containsKey(CodeStatus.SUCCESS.getValue())) {
-                    updateTaskStatus(log_id, "SUCCESS", getCurrentTimestampMillis(), null);
+                    updateTaskStatus(log_id, "SUCCESS", getCurrentTimestampMillis(), "");
                 } else {
                     updateTaskStatus(log_id, "FAILED", getCurrentTimestampMillis(), result.getString(CodeStatus.FAILED.getValue()));
                 }
@@ -93,8 +86,8 @@ public class FilePreprocessingController {
                 REENTRANT_LOCK.unlock();
             }
         });
-
-      return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(),"task is success");
+        updateTaskStatus(log_id, "SUCCESS", getCurrentTimestampMillis(), "");
+        return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(),"task is success");
     }
     private void updateTaskStatus(String log_id, String log_state, Long finish_time, String content) {
         TaskStatus taskStatus = TASK_STATUS_MAP.get(log_id);
