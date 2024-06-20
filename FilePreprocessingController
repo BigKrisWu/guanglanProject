@@ -1,8 +1,5 @@
-import static com.huawei.fiber.service.impl.FileSynchronizationServiceImpl.clearLocalTempDir;
 import com.huawei.fiber.config.AppProperties;
 import com.huawei.fiber.constant.CodeStatus;
-import com.huawei.fiber.constant.LogRequest;
-import com.huawei.fiber.constant.TaskStatus;
 import com.huawei.fiber.resp.ResponseResult;
 import com.huawei.fiber.service.DataFilterService;
 import com.huawei.fiber.service.DataProcessingService;
@@ -20,14 +17,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -52,40 +48,46 @@ public class FilePreprocessingController {
     private static final ReentrantLock REENTRANT_LOCK = new ReentrantLock();
 
     @RequestMapping(value = "/downloadAndProcess", method = RequestMethod.POST, produces = "application/json;charset=UTF-8")
-    public ResponseResult<JSONObject> processData(@RequestBody LogRequest logRequest) {
-        String log_id = logRequest.getLogId();
-        ServiceUtil.updateC2Status(log_id,"RUNNING",null,null);
+    public ResponseResult<JSONObject> processData() {
+
         if (REENTRANT_LOCK.isLocked()) {
             return new ResponseResult<>(HttpStatus.BAD_REQUEST.value(), new JSONObject(),
                 "Current preprocessing task conflicts, thread locked, please wait for execution completion and try again.");
         } else {
             REENTRANT_LOCK.lock();
         }
-         JSONObject result ;
+        com.huawei.mateinfo.sdk.jsonf.JSONObject obj = ServiceUtil.createRecord("RUNNING", getCurrentTimestampMillis());
+        // 解决CompletableFuture.runAsync中无法直接赋值给局部变量的问题
+        AtomicReference<JSONObject> result = new AtomicReference<>(new JSONObject());
+        String logId = obj.optString("log_id");
         CompletableFuture.runAsync(() -> {
+            LOGGER.info("Start asynchronous data download preprocessing");
             try {
                 FileSynchronizationServiceImpl.fetchConfigFromPage();
                 appProperties.fetchPathFromPage();
                 if (fileSynchronizationService.synchronizeFiles() && dataFilterService.filterData()) {
-                    result= fileSynchronizationService.uploadResultFiles(FileSynchronizationServiceImpl.LOCALTEMPDIR, FileSynchronizationServiceImpl.PATH_MAP.get("col"));
+                    result.set(fileSynchronizationService.uploadResultFiles(FileSynchronizationServiceImpl.LOCALTEMPDIR, FileSynchronizationServiceImpl.PATH_MAP.get("col")));
                 } else {
+                    JSONObject jsonObj = new JSONObject();
+                    jsonObj.put(CodeStatus.FAILED.getValue(), "The preprocessing file is not updated or The file does not exist or the verification fails, No processing");
+                    result.set(jsonObj);
                     LOGGER.warn("The preprocessing file is not updated or The file does not exist or the verification fails, No processing");
                 }
 
-                if (result.containsKey(CodeStatus.SUCCESS.getValue())) {
-                    ServiceUtil.updateC2Status(log_id, "SUCCESS", getCurrentTimestampMillis(), "");
+                if (result.get().containsKey(CodeStatus.SUCCESS.getValue())) {
+                    ServiceUtil.updateC2Status(logId, "SUCCESS", getCurrentTimestampMillis(), result.get().toString());
                 } else {
-                    ServiceUtil.updateC2Status(log_id, "FAILED", getCurrentTimestampMillis(), result.getString(CodeStatus.FAILED.getValue()));
+                    ServiceUtil.updateC2Status(logId, "FAILED", getCurrentTimestampMillis(), result.get().toString());
                 }
             } catch (Exception e) {
                 LOGGER.error("processData failed, msg: {}", e.getMessage());
-                ServiceUtil.updateC2Status(log_id, "FAILED", getCurrentTimestampMillis(), e.getMessage());
+                ServiceUtil.updateC2Status(logId, "FAILED", getCurrentTimestampMillis(), e.getMessage());
             } finally {
                 clearLocalTempDir();
                 REENTRANT_LOCK.unlock();
+                LOGGER.info("Lock released successfully...");
             }
         });
-        ServiceUtil.updateC2Status(log_id, "SUCCESS", getCurrentTimestampMillis(), "");
         return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(),"task is success");
     }
 
