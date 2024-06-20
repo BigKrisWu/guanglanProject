@@ -8,6 +8,7 @@ import com.huawei.fiber.service.DataFilterService;
 import com.huawei.fiber.service.DataProcessingService;
 import com.huawei.fiber.service.FileSynchronizationService;
 import com.huawei.fiber.service.impl.FileSynchronizationServiceImpl;
+import com.huawei.fiber.utils.ServiceUtil;
 import com.huawei.ows.sdk.base.cse.GdeCseConstant;
 
 import com.alibaba.fastjson.JSONObject;
@@ -49,55 +50,47 @@ public class FilePreprocessingController {
     @Autowired
     private DataFilterService dataFilterService;
     private static final ReentrantLock REENTRANT_LOCK = new ReentrantLock();
-    private static final ConcurrentHashMap<String, TaskStatus> TASK_STATUS_MAP = new ConcurrentHashMap<>();
 
     @RequestMapping(value = "/downloadAndProcess", method = RequestMethod.POST, produces = "application/json;charset=UTF-8")
     public ResponseResult<JSONObject> processData(@RequestBody LogRequest logRequest) {
         String log_id = logRequest.getLogId();
-        TASK_STATUS_MAP.put( log_id, new TaskStatus(log_id,"RUNNING", null, null));
+        ServiceUtil.updateC2Status(log_id,"RUNNING",null,null);
         if (REENTRANT_LOCK.isLocked()) {
             return new ResponseResult<>(HttpStatus.BAD_REQUEST.value(), new JSONObject(),
                 "Current preprocessing task conflicts, thread locked, please wait for execution completion and try again.");
         } else {
             REENTRANT_LOCK.lock();
         }
-
+         JSONObject result ;
         CompletableFuture.runAsync(() -> {
             try {
                 FileSynchronizationServiceImpl.fetchConfigFromPage();
                 appProperties.fetchPathFromPage();
-                if (fileSynchronizationService.synchronizeFiles()) {
-                    dataFilterService.filterData();
+                if (fileSynchronizationService.synchronizeFiles() && dataFilterService.filterData()) {
+                    result= fileSynchronizationService.uploadResultFiles(FileSynchronizationServiceImpl.LOCALTEMPDIR, FileSynchronizationServiceImpl.PATH_MAP.get("col"));
                 } else {
-                    LOGGER.warn("The preprocessing file is not updated , No processing ");
+                    LOGGER.warn("The preprocessing file is not updated or The file does not exist or the verification fails, No processing");
                 }
-                JSONObject result = fileSynchronizationService.uploadResultFiles(
-                    FileSynchronizationServiceImpl.LOCALTEMPDIR, FileSynchronizationServiceImpl.PATH_MAP.get("col"));
+
                 if (result.containsKey(CodeStatus.SUCCESS.getValue())) {
-                    updateTaskStatus(log_id, "SUCCESS", getCurrentTimestampMillis(), "");
+                    ServiceUtil.updateC2Status(log_id, "SUCCESS", getCurrentTimestampMillis(), "");
                 } else {
-                    updateTaskStatus(log_id, "FAILED", getCurrentTimestampMillis(), result.getString(CodeStatus.FAILED.getValue()));
+                    ServiceUtil.updateC2Status(log_id, "FAILED", getCurrentTimestampMillis(), result.getString(CodeStatus.FAILED.getValue()));
                 }
             } catch (Exception e) {
                 LOGGER.error("processData failed, msg: {}", e.getMessage());
-                updateTaskStatus(log_id, "FAILED", getCurrentTimestampMillis(), e.getMessage());
+                ServiceUtil.updateC2Status(log_id, "FAILED", getCurrentTimestampMillis(), e.getMessage());
             } finally {
                 clearLocalTempDir();
                 REENTRANT_LOCK.unlock();
             }
         });
-        updateTaskStatus(log_id, "SUCCESS", getCurrentTimestampMillis(), "");
+        ServiceUtil.updateC2Status(log_id, "SUCCESS", getCurrentTimestampMillis(), "");
         return new ResponseResult<>(HttpStatus.OK.value(), new JSONObject(),"task is success");
     }
-    private void updateTaskStatus(String log_id, String log_state, Long finish_time, String content) {
-        TaskStatus taskStatus = TASK_STATUS_MAP.get(log_id);
-        if (taskStatus != null) {
-            taskStatus.setLog_state(log_state);
-            taskStatus.setFinish_time(finish_time);
-            taskStatus.setContent(content);
-        }
-    }
-    private long getCurrentTimestampMillis() {
-        return Instant.now().toEpochMilli();
+
+
+    private String getCurrentTimestampMillis() {
+        return String.valueOf(Instant.now().toEpochMilli());
     }
 }
