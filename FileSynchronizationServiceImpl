@@ -1,3 +1,61 @@
+package com.huawei.fiber.service.impl;
+import com.huawei.baize.security.misc.io.FileSecUtils;
+import com.huawei.fiber.constant.CodeStatus;
+import com.huawei.fiber.constant.Constants;
+import com.huawei.fiber.service.FileSynchronizationService;
+import com.huawei.fiber.utils.ServiceUtil;
+import com.huawei.fiber.utils.SftpClientUtil;
+import com.huawei.ows.sdk.base.common.context.ContextManager;
+import com.huawei.ows.sdk.base.crypto.CryptoUtils;
+import com.huawei.us.common.file.UsFileUtils;
+
+import com.alibaba.fastjson.JSONObject;
+
+import io.vertx.core.impl.ConcurrentHashSet;
+
+import org.apache.sshd.client.channel.ChannelExec;
+import org.apache.sshd.client.channel.ClientChannelEvent;
+import org.apache.sshd.sftp.client.SftpClient;
+import org.apache.sshd.sftp.common.SftpConstants;
+import org.apache.sshd.sftp.common.SftpException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 同步文件上传下载
@@ -34,17 +92,29 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
 
     private static String sftp_remoteDir;
 
-    public static final String LOCALTEMPDIR = "/opt/collection/srcTemp";
+    public static final String LOCALTEMPDIR = "/opt/backup/glcollection/srctemp";
 
-    public static final Pattern DIR_PATTERN = Pattern.compile("\\d{8}");
-    public static final Pattern CONTINUATIVE_NUM_PATTERN = Pattern.compile("(\\d{14})"); // 匹配连续的14位数字
+    private static final Pattern DIR_PATTERN = Pattern.compile("\\d{8}");
 
-    public static Map<String, String> map = new HashMap<>(3);
-    public static Set<String> filesUpdateSet = new HashSet<>();
+    private static final int MAX_CONCURRENT_DOWNLOADS = 3;
+
+    private static final int MAX_CONCURRENT_UPLOADS = 3;
+
+    private static final Pattern CONTINUATIVE_NUM_PATTERN = Pattern.compile("(\\d{14})"); // 匹配连续的14位数字
+
+    private static final Pattern FILE_PATTERN = Pattern.compile(".*(\\d+\\.?\\d+)G *(\\d+\\.?\\d+)G *(\\d+\\.?\\d+)G.*");
+
+    public static final Map<String, String> PATH_MAP = new ConcurrentHashMap<>(3);
+
+    private static final Set<String> FILES_UPDATE_SET = new ConcurrentHashSet<>();
+
+    private static final ExecutorService DOWNLOAD_EXECUTOR = Executors.newFixedThreadPool(MAX_CONCURRENT_DOWNLOADS);
+
+    private static final ExecutorService UPLOAD_EXECUTOR = Executors.newFixedThreadPool(MAX_CONCURRENT_UPLOADS);
 
     private static final List<String> processList = Arrays.asList("_SEGMENT_", "_STRONGHOLD_", "_CABLELAYING_",
-            "_CIRCUITASSIGN_", "_CIRCUITLINK_", "_FIBER_", "_JOINT_", "_LOGICALFIBERCIR_", "_OCCP_", "_OPTCABLESECTION_",
-            "_OPTICALCABLE_", "_OPTICALCIRCUIT_", "_IRM_IV_OTN_");
+        "_CIRCUITASSIGN_", "_CIRCUITLINK_", "_FIBER_", "_JOINT_", "_LOGICALFIBERCIR_", "_OCCP_", "_OPTCABLESECTION_",
+        "_OPTICALCABLE_", "_OPTICALCIRCUIT_", "_IRM_IV_OTN_");
 
     public static void fetchConfigFromPage() {
         Map<String, String> parameter = ServiceUtil.getNebulaConfig();
@@ -61,9 +131,9 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         sftp_username = parameter.get("sftp_username");
         sftp_password = CryptoUtils.decrypt(parameter.get("sftp_password"), ContextManager.getCurrentTenantId());
         sftp_remoteDir = parameter.get("sftp_remote_dir");
-        map.put("src", sftp_remoteDir + File.separator + "src");
-        map.put("col", sftp_remoteDir + File.separator + "col");
-        map.put("pro", sftp_remoteDir + File.separator + "pro");
+        PATH_MAP.put("src", sftp_remoteDir + File.separator + "src");
+        PATH_MAP.put("col", sftp_remoteDir + File.separator + "col");
+        PATH_MAP.put("pro", sftp_remoteDir + File.separator + "pro");
     }
 
     @Override
@@ -71,34 +141,45 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         checkAndCreateDirectory(LOCALTEMPDIR);
         SftpClient srcSftpClient = createSftpClient(remoteIp, username, password, port);
         List<String> recentDirs = getRecentDirs(srcSftpClient, remoteDir, maxDirSize);
-        handleFileSync(recentDirs, map.get("src"), map.get("pro"));
-        return isPreprocessingRequired(map.get("src"),filesUpdateSet);
+        FILES_UPDATE_SET.clear();
+        return handleFileSync(recentDirs, PATH_MAP.get("src"), PATH_MAP.get("pro")) && isPreprocessingRequired(PATH_MAP.get("src"), FILES_UPDATE_SET);
     }
     private boolean isPreprocessingRequired(String srcDir, Set<String> filesUpdateSet) {
-        try (SftpClient srcSftp = createSftpClient(remoteIp, username, password, port)) {
-            Set<String> currentFiles = getRemoteSrcFiles(srcSftp, Collections.singletonList(srcDir));
+        boolean isFirstExecution =true;
+        try (SftpClient srcSftp = createSftpClient(sftp_host, sftp_username, sftp_password, sftp_port)) {
+            Set<String> currentFiles = extractFileNames(getRemoteSrcFiles(srcSftp, Collections.singletonList(srcDir)));
             // 如果filesUpdateSet为空,说明没有任何文件需要更新,返回false
             if (filesUpdateSet.isEmpty()) {
                 return false;
             }
             // 过滤出processList中的文件
-            Set<String> filteredFiles = filesUpdateSet.stream()
+            Set<String> filteredFiles = extractFileNames(filesUpdateSet).stream()
                 .filter(this::isFileInProcessList)
                 .collect(Collectors.toSet());
             // 如果filteredFiles为空,说明过滤后的文件没有符合要求的,返回false
             if (filteredFiles.isEmpty()) {
                 return false;
             }
-            // 比较filteredFiles和currentFiles
+            if(isFirstExecution){
+                isFirstExecution = false;
+                return true;
+            }
             return !filteredFiles.equals(currentFiles);
         } catch (IOException e) {
-            LOGGER.error("[OCDCollectionService][isPreprocessingRequired]Error checking preprocessing files", e);
+            LOGGER.error("[OCDCollectionService][isPreprocessingRequired]Error checking preprocessing files");
             return true;
         }
     }
 
+    private Set<String> extractFileNames(Set<String> filePaths) {
+        return filePaths.stream()
+            .map(Paths::get)
+            .map(Path::getFileName)
+            .map(Path::toString)
+            .collect(Collectors.toSet());
+    }
     private boolean isFileInProcessList(String file) {
-        return processList.contains(file);
+        return processList.stream().anyMatch(file::contains);
     }
 
     private Set<String> getRemoteSrcFiles(SftpClient sftpClient, List<String> srcDirs) {
@@ -114,10 +195,11 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
                 }
             }
         } catch (IOException e) {
-            LOGGER.error("[OCDCollectionService][retrieveSrcFiles]Error retrieving source files", e);
+            LOGGER.error("[OCDCollectionService][retrieveSrcFiles]Error retrieving source files");
         }
         return srcFiles;
     }
+
     @Override
     public JSONObject uploadResultFiles(String localDirectoryPath, String remoteDirectoryPath) throws IOException {
         JSONObject result = new JSONObject();
@@ -127,8 +209,8 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         try (Stream<Path> paths = Files.walk(FileSecUtils.getPath(localDirectoryPath))) {
             // 后续需整改，不能写死
             List<Path> filesToUpload = paths.filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().startsWith("D_"))
-                    .collect(Collectors.toList());
+                .filter(path -> path.getFileName().toString().startsWith("D_"))
+                .collect(Collectors.toList());
 
             // 上传每个文件到远程目录
             for (Path file : filesToUpload) {
@@ -136,7 +218,6 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
                 String remoteFilePath = remoteDirectoryPath + File.separator + file.getFileName().toString();
                 uploadFile(sftpClient, localFilePath, remoteFilePath);
             }
-            clearLocalTempDir();
             result.put(CodeStatus.SUCCESS.getValue(), "The task is executed successfully.");
         } catch (IOException e) {
             result.put(CodeStatus.FAILED.getValue(), "The task is executed failed.");
@@ -171,13 +252,13 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         Set<String> matchedFiles = new HashSet<>();
         for (String dir : recentDirs) {
             Iterable<SftpClient.DirEntry> files = sftp.readDir(
-                    remoteDir + File.separator + dir + File.separator + filesDirectory);
+                remoteDir + File.separator + dir + File.separator + filesDirectory);
             for (SftpClient.DirEntry entry : files) {
                 String filename = entry.getFilename();
                 for (String pattern : fileSet) {
                     if (filename.contains(pattern)) {
                         String filePath = remoteDir + File.separator + dir + File.separator + filesDirectory
-                                + File.separator + filename;
+                            + File.separator + filename;
                         SftpClient.Attributes attrs = sftp.stat(filePath);
                         if (attrs.getSize() > 0) {
                             if (hasDataLines(sftp, filePath)) {
@@ -228,26 +309,24 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         }
     }
 
-    private void handleFileSync(List<String> srcDir, String destSrcDir, String destProDir) {
-        int maxConcurrentDownloads = 3;
-        int maxConcurrentUploads = 3;
-        ExecutorService downloadExecutor = Executors.newFixedThreadPool(maxConcurrentDownloads);
-        ExecutorService uploadExecutor = Executors.newFixedThreadPool(maxConcurrentUploads);
+    private boolean handleFileSync(List<String> srcDir, String destSrcDir, String destProDir) {
         try (SftpClient srcSftp = createSftpClient(remoteIp, username, password, port);
             SftpClient destSftp = createSftpClient(sftp_host, sftp_username, sftp_password, sftp_port)) {
             Set<String> srcFiles = retrieveSrcFiles(srcSftp, srcDir);
             // 对匹配上fileSet的源文件，统计大小并检验/opt/collection/srcTemp磁盘剩余空间  && 每个文件大小都要单独校验
             if (!checkFileAndFreeSpace(srcSftp, srcFiles, LOCALTEMPDIR, Constants.CHECK_FOR_SRC)) {
                 LOGGER.error("[OCDCollectionService][handleFileSync] The remaining space on the host-{} is less than {} GB or file to download size exceeds {} GB, terminate the task.",
-                        remoteIp, Constants.MIN_FREE_SPACE, Constants.MAX_FILE_SIZE);
+                    remoteIp, Constants.MIN_FREE_SPACE, Constants.MAX_FILE_SIZE);
+                return false;
             }
             Set<String> destFiles = retrieveDestFiles(destSftp, destSrcDir, destProDir);
             Set<String> filesToUpdate = determineFilesToUpdate(destSftp, srcFiles, destFiles);
-            filesUpdateSet.addAll(filesToUpdate);
+            FILES_UPDATE_SET.addAll(filesToUpdate);
             // 对待推送的文件，统计大小并检验对端磁盘剩余空间 校验文件和磁盘剩余空间
             if (!checkFileAndFreeSpace(srcSftp, filesToUpdate, sftp_remoteDir, Constants.CHECK_FOR_DEST)) {
                 LOGGER.error("[OCDCollectionService][handleFileSync] The remaining space on the host-{} is less than {} GB or file size to upload exceeds {} GB, terminate the task.",
-                        remoteIp, Constants.MIN_FREE_SPACE, Constants.MAX_FILE_SIZE);
+                    remoteIp, Constants.MIN_FREE_SPACE, Constants.MAX_FILE_SIZE);
+                return false;
             }
             Map<String, Future<?>> downloadTasks = new HashMap<>();
             Map<String, Future<?>> uploadTasks = new HashMap<>();
@@ -257,7 +336,7 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
                 String localFilePath = LOCALTEMPDIR + File.separator + fileName;
                 String remoteFilePath = determineDestinationPath(fileName, destSrcDir, destProDir);
 
-                Future<?> downloadTask = downloadExecutor.submit(() -> {
+                Future<?> downloadTask = DOWNLOAD_EXECUTOR.submit(() -> {
                     int maxRetries = 5;
                     int retryCount = 0;
                     while (retryCount < maxRetries) {
@@ -285,12 +364,12 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
 
                 downloadTasks.put(fileName, downloadTask);
 
-                Future<?> uploadTask = uploadExecutor.submit(() -> {
+                Future<?> uploadTask = UPLOAD_EXECUTOR.submit(() -> {
                     int maxRetries = 5;
                     int retryCount = 0;
                     while (retryCount < maxRetries) {
                         try (SftpClient destSftpClient = createSftpClient(sftp_host, sftp_username, sftp_password, sftp_port)) {
-                            downloadTask.get();
+                            downloadTask.get(1, TimeUnit.HOURS);
                             uploadFile(destSftpClient, localFilePath, remoteFilePath);
                             break;
                         } catch (Exception e) {
@@ -315,8 +394,10 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
             }
             waitForTasksCompletion(downloadTasks.values());
             waitForTasksCompletion(uploadTasks.values());
+            return true;
         }  catch (IOException e) {
             LOGGER.error("[OCDCollectionService][handleFileSync]Error initializing file synchronization");
+            return false;
         }
     }
 
@@ -331,8 +412,8 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
     private void waitForTasksCompletion(Collection<Future<?>> tasks) {
         for (Future<?> task : tasks) {
             try {
-                task.get();
-            } catch (InterruptedException | ExecutionException e) {
+                task.get(1, TimeUnit.HOURS);
+            } catch (InterruptedException | ExecutionException | TimeoutException e) {
                 LOGGER.error("[OCDCollectionService][waitForTasksCompletion]Exception while waiting for task completion: {}", e.getMessage());
             }
         }
@@ -365,16 +446,16 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
                 // 上传时检验远程目录
                 SftpClientUtil scu = new SftpClientUtil();
                 try (ChannelExec execChannel = scu.getExecChannel(sftp_host, sftp_username,
-                        sftp_password, sftp_port, "df -h " + destDir);
-                     ByteArrayOutputStream outputErr = new ByteArrayOutputStream();
-                     ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                    sftp_password, sftp_port, "df -h " + destDir);
+                    ByteArrayOutputStream outputErr = new ByteArrayOutputStream();
+                    ByteArrayOutputStream output = new ByteArrayOutputStream()) {
                     execChannel.setOut(output);
                     execChannel.setErr(outputErr);
                     execChannel.open();
                     execChannel.waitFor(EnumSet.of(ClientChannelEvent.CLOSED), 0);
                     String commandResult = output.toString().replace("\n", " ");
-                    Matcher matcher = Pattern.compile(".*(\\d+\\.?\\d+)G *(\\d+\\.?\\d+)G *(\\d+\\.?\\d+)G.*").matcher(commandResult);
-                    double availSpace = 0.0d;
+                    Matcher matcher = FILE_PATTERN.matcher(commandResult);
+                    double availSpace;
                     if (matcher.find()) {
                         availSpace = Double.parseDouble(matcher.group(3));
                         return availSpace * Constants.BYTE_SIZE_GB - totalFileSize > Constants.MIN_FREE_SPACE * Constants.BYTE_SIZE_GB;
@@ -408,7 +489,7 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
     }
 
     private Set<String> determineFilesToUpdate(SftpClient destSftp, Set<String> srcFiles, Set<String> destFiles)
-            throws IOException {
+        throws IOException {
         Set<String> filesToUpdate = new HashSet<>();
         Map<String, String> destFilesMap = new HashMap<>();
         // 为目标文件创建映射，使用基本文件名作为键
@@ -444,6 +525,11 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
         return filesToUpdate;
     }
 
+    /**
+     * 从目标服务器下载剩余的其他文件到临时目录
+     * @param destSftp
+     * @param destFilesMap
+     */
     private void downloadRemainingFiles(SftpClient destSftp, Map<String, String> destFilesMap) {
         for (String key : destFilesMap.keySet()) {
             if (processList.stream().anyMatch(key::contains)) {
@@ -538,7 +624,7 @@ public class FileSynchronizationServiceImpl implements FileSynchronizationServic
     }
 
     // 清空本地临时目录中的所有文件
-    private void clearLocalTempDir() {
+    public static void clearLocalTempDir() {
         Path tempDir = FileSecUtils.getPath(LOCALTEMPDIR);
         if (!Files.exists(tempDir)) {
             LOGGER.warn("[OCDCollectionService][clearLocalTempDir]Local temp directory does not exist: {}", LOCALTEMPDIR);
