@@ -1,39 +1,30 @@
-    我需要你在下面Java方法的基础上补全todo说明， file_set是从页面配置拿到的 fileSet = new HashSet<>(Arrays.asList(parameter.get("file_set").split(",")));
-    file_set页面示例：
-    IV_COUNTY_,SPR_SITE_,IRM_IV_ROOM_,IRM_IV_OPTICALCIRCUIT_,IRM_IV_LOGICALFIBERCIR_,IRM_IV_CIRCUITASSIGN_,IRM_IV_CIRCUITLINK_,IRM_IV_FIBER_,IRM_IV_TRANSSYSTEM_,IRM_IV_TRANSSUBNET_,IRM_IV_PTNSECTION_,IRM_IV_SDHSECTION_,IRM_IV_OTS_,IRM_IV_OPTICALCABLE_,IRM_IV_OPTCABLESECTION_,
-    IRM_IV_OTN_,IRM_IV_OCCP_,IRM_IV_CONNECTOR_OCCP1_,IRM_IV_CONNECTORJUMPER_,IRM_IV_CABLELAYING_,IRM_IV_R_CIRCUIT_NETWORK_,IRM_IV_ODF_,IRM_IV_PORT_D_JIKE_,IRM_IV_JOINT_,IRM_IV_STRONGHOLD_,IRM_IV_AAU_,IRM_IV_BBU_,RE_LTEBBU_HWREPORT_,RE_NRBBU_HWREPORT_,IRM_IV_NRCELL_,
-    IRM_IV_DEVICE_,IRM_IV_PORT_OLT_,IRM_IV_PORT_PTN_,IRM_IV_PORT_OTN_,IRM_IV_PORT_SDH_,IRM_IV_PORT_BBU_,TRAN_TRANSCIRCUIT_,TRAN_PTNACCESSCIR_,IRM_IV_CIRCUIT_D_,RE_BA_TRAN_SEGMENT_
-   
-    下面是文件名例子：
-    示例1：c7ca69b8077a4c3d9775f291db402a11_D_RE_BA_TRAN_PORT_OLT_D_20240623000000.csv
-          c7ca69b8077a4c3d9775f291db402a11_D_RE_BA_TRAN_PORT_OLT_D_20240701000000.csv
-    示例2：mod-1742848231-1058515317_D_RNT_IRM_IV_PTNSECTION_D_20240423000000.csv
-           mod-1742848231-1058515317_D_RNT_IRM_IV_PTNSECTION_D_20240701000000.csv
-    ```
-    private Set<String> retrieveSrcFiles(SftpClient sftp, List<String> recentDirs) throws IOException {
-        Set<String> matchedFiles = new HashSet<>();
-        for (String dir : recentDirs) {
-            Iterable<SftpClient.DirEntry> files = sftp.readDir(
-                remoteDir + File.separator + dir + File.separator + filesDirectory);
-            for (SftpClient.DirEntry entry : files) {
-                String filename = entry.getFilename();
-                for (String pattern : fileSet) {
-                    if (filename.contains(pattern)) {
-                        String filePath = remoteDir + File.separator + dir + File.separator + filesDirectory
-                            + File.separator + filename;
-                        SftpClient.Attributes attrs = sftp.stat(filePath);
-                        if (attrs.getSize() > 0) {
-                            if (hasDataLines(sftp, filePath)) {
-                                // todo key ->pattern value->文件名
-                                //todo 如果pattern匹配的文件是同一文件，则比较相同文件后的时间戳，取最新的文件。
-                                matchedFiles.add(filePath);
-                                break; // 匹配到一个模式后不需要继续检查其他模式
-                            }
-                        }
-                    }
-                }
+processList是一个需要推送的文件名集合，需要对todo进行修改，不能用"D_"，而是用processList集合里的文件名推送。
+
+```
+public JSONObject uploadResultFiles(String localDirectoryPath, String remoteDirectoryPath) throws IOException {
+        JSONObject result = new JSONObject();
+        SftpClient sftpClient = createSftpClient(sftp_host, sftp_username, sftp_password, sftp_port);
+        ensureDirectoryExists(sftpClient, remoteDirectoryPath);
+
+        try (Stream<Path> paths = Files.walk(UsFileUtils.getFile(localDirectoryPath).toPath())) {
+            // todo 后续需整改，不能写死
+            List<Path> filesToUpload = paths.filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().startsWith("D_"))
+                .collect(Collectors.toList());
+
+            // 上传每个文件到远程目录
+            for (Path file : filesToUpload) {
+                String localFilePath = file.toString();
+                String remoteFilePath = remoteDirectoryPath + File.separator + file.getFileName().toString();
+                uploadFile(sftpClient, localFilePath, remoteFilePath);
             }
+            result.put(CodeStatus.SUCCESS.getValue(), "The task is executed successfully.");
+        } catch (IOException e) {
+            result.put(CodeStatus.FAILED.getValue(), "The task is executed failed.");
+            LOGGER.error("[OCDCollectionService][uploadResultFiles]Error uploading files: {}", e.getMessage());
+        } finally {
+            sftpClient.close();
         }
-        return matchedFiles;
+        return result;
     }
-    ```
+```
