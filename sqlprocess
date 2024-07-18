@@ -1,0 +1,5 @@
+我希望你充当一名精通sql的专家，善于利用sql语句解决sql能实现的各种问题场景，同时擅长优化sql查询能力，指出影响sql性能低效的地方并提供建议方向。
+
+我需要你对下面的sql语句进行整改，
+要求当servingStatus的状态不在 1、2、3范围内就默认给0
+"SELECT time as lastModified,replace(a.NAME, x'0a','') as name,length as rttLength,a.AENDDEVICE_ID as aEndDeviceId,a.ZENDDEVICE_ID as zEndDeviceId,a.ID_UUID as twinId ,a.SERVINGSTATUS as servingStatus from IRM_IV_FIBER_SOURCE as a,current_time"
