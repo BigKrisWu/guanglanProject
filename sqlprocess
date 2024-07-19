@@ -1,5 +1,55 @@
-我希望你充当一名精通sql的专家，善于利用sql语句解决sql能实现的各种问题场景，同时擅长优化sql查询能力，指出影响sql性能低效的地方并提供建议方向。
 
-我需要你对下面的sql语句进行整改，
-要求当servingStatus的状态不在 1、2、3范围内就默认给0
-"SELECT time as lastModified,replace(a.NAME, x'0a','') as name,length as rttLength,a.AENDDEVICE_ID as aEndDeviceId,a.ZENDDEVICE_ID as zEndDeviceId,a.ID_UUID as twinId ,a.SERVINGSTATUS as servingStatus from IRM_IV_FIBER_SOURCE as a,current_time"
+下面这个是v_optical_circuit_device建表语句
+```
+ create table if not exists v_optical_circuit_device(
+	 lastModified varchar(32672),
+	 name varchar(32672),
+	 level varchar(32672),
+	 carrySystem varchar(32672),
+	 prefectureId varchar(32672),
+	 aEndDevicePid varchar(32672),
+	 aEndDeviceName varchar(32672),
+	 aEndPortName varchar(32672),
+	 zEndDevicePid varchar(32672),
+	 zEndDeviceName varchar(32672),
+	 zEndPortName varchar(32672),
+	 aEndSiteId varchar(32672),
+	 zEndSiteId varchar(32672),
+	 type varchar(32672),
+	 twinId varchar(32672)
+)
+```
+参照下面这个sql语句，我需要你对 type字段代表光路类型进行判断，根据type接受的光路类型需要按照优先级处理
+判断方式如下：
+OTN/SDH光路: 光路A端设备或Z端设备为OTN（36207）的光路
+PON光路：光路A端设备或Z端设备为OLT（36041）的光路
+PTN/SPN光路：光路A端设备或Z端设备为PTN（36056）的光路
+CRAN光路：光路A端设备或Z端设备为BBU设备（36016）的光路
+OLT上行光路：采集的OLT上行裸纤电路数据
+OTHER其他：都不属于的时候，填充为 OTHER
+az两端不同的光路类型，参考优先级：OTN/SDH > PTN/SPN > PON > CRAN
+
+示例：
+```
+SELECT 
+	time as lastModified,
+	replace(a.NAME, x'0a','') as name,
+	a.CIRCUITLEVEL as level,
+	a.CARRYSYSTEM as carrySystem,
+	a.PREFECTURE_ID as prefectureId,
+	b.PREFECTURE_ID as aEndDevicePid,
+	b.NAME as aEndDeviceName,
+	d.ASSEMBLENAME as aEndPortName,
+	c.PREFECTURE_ID as zEndDevicePid,
+	c.NAME as zEndDeviceName,
+	e.ASSEMBLENAME as zEndPortName,
+	a.AENDSITE_ID as aEndSiteId,
+	a.ZENDSITE_ID as zEndSiteId,
+	'C2' as type,
+	a.ID_UUID as twinId
+from IRM_IV_OPTICALCIRCUIT_SOURCE as a 
+left join IRM_IV_DEVICE_SOURCE b 
+on a.AENDDEVICE_ID = b.ID 
+left join IRM_IV_DEVICE_SOURCE c 
+on a.ZENDDEVICE_ID = c.ID ,current_time
+```
