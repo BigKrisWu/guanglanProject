@@ -1,0 +1,41 @@
+在a表添加新需求：
+新增ENTITYTYPE_ID字段，代表电路类别（同源双宿电路：30071，传输电路：30027）
+type字段，代表电路类型
+电路类别是30071，type字段为PTN，
+电路类别是30027，type字段需要根据A端设备(AENDDEVICE_ID)或Z端设备(ZENDDEVICE_ID)为OTN（36207）或SDH（36067）的传输电路判断电路类型为OTN/SDH，
+A端设备或Z端设备为PTN（36056）的传输电路判断电路类型为PTN/SPN
+						  
+						  
+```
+SELECT 
+	time as lastModified,
+	replace(a.NAME, x'0a','') as name,
+	replace(TRANSMISSIONSERVICETYPE, x'0a','') as serviceType,
+	b.NAME as aEndDeviceName,
+	d.NAME as aEndSiteName,
+	c.NAME as zEndDeviceName,
+	e.NAME as zEndSiteName,
+	a.ACCESSPTNDEVICE as accessPtnDevice,
+	a.COREPTNDEVICE1 as corePtnDevice1,
+	a.COREPTNDEVICE2 as corePtnDevice2,
+	f.NAME as accessPtnDevicename,
+	f.NAME as corePtnDevice1name,
+	f.NAME as corePtnDevice2name,
+	'PTN' as type,
+	a.ID_UUID as twinId 
+from RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE as a 
+left join IRM_IV_DEVICE_SOURCE b 
+on a.AENDDEVICE_ID = b.ID 
+left join IRM_IV_DEVICE_SOURCE c 
+on a.ZENDDEVICE_ID = c.ID 
+left join RE_BA_SPR_SITE_SOURCE d 
+on a.AENDSITE_ID = d.ID 
+left join RE_BA_SPR_SITE_SOURCE e 
+on a.ZENDSITE_ID = e.ID
+left join IRM_IV_DEVICE_SOURCE f
+on a.ACCESSPTNDEVICE = f.ID 
+left join IRM_IV_DEVICE_SOURCE g
+on a.COREPTNDEVICE1 = g.ID
+left join IRM_IV_DEVICE_SOURCE h
+on a.COREPTNDEVICE2 = h.ID,current_time
+```						 
