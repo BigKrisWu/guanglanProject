@@ -1,22 +1,27 @@
-针对删除临时文件的代码片段，要充分考虑关闭之前是否有异常代码，导致临时文件不能删除，建议将Files.delete(path); 放入finally语句块
-
-public static void clearLocalTempDir() {
-        Path tempDir = UsFileUtils.getFile(LOCALTEMPDIR).toPath();
-        if (!Files.exists(tempDir)) {
-            LOGGER.warn("[OCDCollectionService][clearLocalTempDir]Local temp directory does not exist: {}", LOCALTEMPDIR);
-            return;
-        }
-        LOGGER.warn("[OCDCollectionService][clearLocalTempDir]Starting to clear the temporary directory.");
-        try (Stream<Path> paths = Files.list(tempDir)) {
-            paths.filter(Files::isRegularFile).forEach(path -> {
-                try {
-                    Files.delete(path);
-                } catch (IOException e) {
-                    LOGGER.error("[OCDCollectionService][clearLocalTempDir]Failed to delete file: {}", path);
-                }
-            });
-            LOGGER.warn("Cleared successfully.");
+同理这个也需要调整，要保留原有方法逻辑不变的情况下调整
+```
+    private void deleteMatchingFiles(RuleModel ruleModel) {
+        String tableName = StringUtils.isNotBlank(ruleModel.getCombinedTable())
+            ? ruleModel.getCombinedTable()
+            : ruleModel.getPrimaryTable();
+        try (Stream<Path> paths = Files.walk(UsFileUtils.getFile(SRC_TMP_DIR).toPath())) {
+            paths.filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().contains(tableName))
+                .filter(path -> !path.getFileName().toString().startsWith(tableName))
+                .forEach(path -> {
+                    File file = path.toFile();
+                    try {
+                        if (file.delete()) {
+                            LOGGER.warn("Deleted file: {}", file.getCanonicalPath());
+                        } else {
+                            LOGGER.warn("Failed to delete file: {}", file.getCanonicalPath());
+                        }
+                    } catch (IOException e) {
+                        LOGGER.error("Error occurred while delete file {}", e.getMessage());
+                    }
+                });
         } catch (IOException e) {
-            LOGGER.error("[OCDCollectionService][clearLocalTempDir]Error while clearing local temp directory: {}", LOCALTEMPDIR);
+            LOGGER.error("Failed to delete file error {}", e.getMessage());
         }
     }
+```
