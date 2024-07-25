@@ -1,0 +1,22 @@
+针对删除临时文件的代码片段，要充分考虑关闭之前是否有异常代码，导致临时文件不能删除，建议将Files.delete(path); 放入finally语句块
+
+public static void clearLocalTempDir() {
+        Path tempDir = UsFileUtils.getFile(LOCALTEMPDIR).toPath();
+        if (!Files.exists(tempDir)) {
+            LOGGER.warn("[OCDCollectionService][clearLocalTempDir]Local temp directory does not exist: {}", LOCALTEMPDIR);
+            return;
+        }
+        LOGGER.warn("[OCDCollectionService][clearLocalTempDir]Starting to clear the temporary directory.");
+        try (Stream<Path> paths = Files.list(tempDir)) {
+            paths.filter(Files::isRegularFile).forEach(path -> {
+                try {
+                    Files.delete(path);
+                } catch (IOException e) {
+                    LOGGER.error("[OCDCollectionService][clearLocalTempDir]Failed to delete file: {}", path);
+                }
+            });
+            LOGGER.warn("Cleared successfully.");
+        } catch (IOException e) {
+            LOGGER.error("[OCDCollectionService][clearLocalTempDir]Error while clearing local temp directory: {}", LOCALTEMPDIR);
+        }
+    }
