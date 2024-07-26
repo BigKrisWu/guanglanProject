@@ -1,27 +1,23 @@
-同理这个也需要调整，要保留原有方法逻辑不变的情况下调整
+
+下面的Java片段提示 Avoid throw raw exception like 'RuntimeException' 
 ```
-    private void deleteMatchingFiles(RuleModel ruleModel) {
-        String tableName = StringUtils.isNotBlank(ruleModel.getCombinedTable())
-            ? ruleModel.getCombinedTable()
-            : ruleModel.getPrimaryTable();
-        try (Stream<Path> paths = Files.walk(UsFileUtils.getFile(SRC_TMP_DIR).toPath())) {
-            paths.filter(Files::isRegularFile)
-                .filter(path -> path.getFileName().toString().contains(tableName))
-                .filter(path -> !path.getFileName().toString().startsWith(tableName))
-                .forEach(path -> {
-                    File file = path.toFile();
-                    try {
-                        if (file.delete()) {
-                            LOGGER.warn("Deleted file: {}", file.getCanonicalPath());
-                        } else {
-                            LOGGER.warn("Failed to delete file: {}", file.getCanonicalPath());
-                        }
-                    } catch (IOException e) {
-                        LOGGER.error("Error occurred while delete file {}", e.getMessage());
-                    }
-                });
-        } catch (IOException e) {
-            LOGGER.error("Failed to delete file error {}", e.getMessage());
+    public SftpClient SftpClient(String host, String userName, String password, int strPort) {
+        init();
+        try {
+            session = sshClient.connect(userName, host, strPort).verify().getSession();
+            session.addPasswordIdentity(password);
+            session.auth().verify();
+            int retryTime = 0;
+            while (!session.isOpen() && ++retryTime <= 3) {
+                Thread.sleep((long) retryTime * 30 * 1000);
+                session = sshClient.connect(userName, host, strPort).verify().getSession();
+                session.addPasswordIdentity(password);
+                session.auth().verify();
+            }
+            SftpClientFactory factory = SftpClientFactory.instance();
+            return factory.createSftpClient(session);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 ```
