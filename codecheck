@@ -1,23 +1,91 @@
 
-下面的Java片段提示 Avoid throw raw exception like 'RuntimeException' 
+同理，下面的Java片段提示 Avoid throw raw exception like 'RuntimeException' 也需要调整。
 ```
-    public SftpClient SftpClient(String host, String userName, String password, int strPort) {
-        init();
-        try {
-            session = sshClient.connect(userName, host, strPort).verify().getSession();
-            session.addPasswordIdentity(password);
-            session.auth().verify();
-            int retryTime = 0;
-            while (!session.isOpen() && ++retryTime <= 3) {
-                Thread.sleep((long) retryTime * 30 * 1000);
-                session = sshClient.connect(userName, host, strPort).verify().getSession();
-                session.addPasswordIdentity(password);
-                session.auth().verify();
+    private boolean handleFileSync(List<String> srcDir, String destSrcDir, String destProDir)
+        throws IOException, SftpClientException {
+        try (SftpClient srcSftp = createSftpClient(remoteIp, username, password, port);
+            SftpClient destSftp = createSftpClient(sftp_host, sftp_username, sftp_password, sftp_port)) {
+            Set<String> srcFiles = retrieveSrcFiles(srcSftp, srcDir);
+            // 对匹配上fileSet的源文件，统计大小并检验/opt/collection/srcTemp磁盘剩余空间  && 每个文件大小都要单独校验
+            if (!checkFileAndFreeSpace(srcSftp, srcFiles, LOCALTEMPDIR, Constants.CHECK_FOR_SRC)) {
+                LOGGER.error("[OCDCollectionService][handleFileSync] The remaining space on the local-{} is less than {} GB or file to download size exceeds {} GB, terminate the task.",
+                        LOCALTEMPDIR, Constants.MIN_FREE_SPACE, Constants.MAX_FILE_SIZE);
+                return false;
             }
-            SftpClientFactory factory = SftpClientFactory.instance();
-            return factory.createSftpClient(session);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+            Set<String> destFiles = retrieveDestFiles(destSftp, destSrcDir, destProDir);
+            Set<String> filesToUpdate = determineFilesToUpdate(destSftp, srcFiles, destFiles);
+            FILES_UPDATE_SET.addAll(filesToUpdate);
+            // 对待推送的文件，统计大小并检验对端磁盘剩余空间 校验文件和磁盘剩余空间
+            if (!checkFileAndFreeSpace(srcSftp, filesToUpdate, sftp_remoteDir, Constants.CHECK_FOR_DEST)) {
+                LOGGER.error("[OCDCollectionService][handleFileSync] The remaining space on the host-{} is less than {} GB or file size to upload exceeds {} GB, terminate the task.",
+                        sftp_host, Constants.MIN_FREE_SPACE, Constants.MAX_FILE_SIZE);
+                return false;
+            }
+            Map<String, Future<?>> downloadTasks = new HashMap<>();
+            Map<String, Future<?>> uploadTasks = new HashMap<>();
+
+            for (String filePath : filesToUpdate) {
+                String fileName = FileProcessUtil.getFileName(filePath);
+                String localFilePath = LOCALTEMPDIR + File.separator + fileName;
+                String remoteFilePath = determineDestinationPath(fileName, destSrcDir, destProDir);
+
+                Future<?> downloadTask = DOWNLOAD_EXECUTOR.submit(() -> {
+                    int maxRetries = 5;
+                    int retryCount = 0;
+                    while (retryCount < maxRetries) {
+                        try (SftpClient srcSftpClient = createSftpClient(remoteIp, username, password, port)) {
+                            downloadFile(srcSftpClient, filePath, localFilePath);
+                            break;
+                        } catch (Exception e) {
+                            retryCount++;
+                            if (retryCount < maxRetries) {
+                                long retryInterval = getRetryInterval(retryCount);
+                                LOGGER.warn("[OCDCollectionService][handleFileSync]Failed to download file. Retrying ({}/{}) in {} ms",
+                                    retryCount, maxRetries, retryInterval);
+                                try {
+                                    Thread.sleep(retryInterval);
+                                } catch (Exception ex) {
+                                    throw new RuntimeException(ex);
+                                }
+                            } else {
+                                LOGGER.error("[OCDCollectionService][handleFileSync]Exception in download task: {}", e.getMessage());
+                            }
+                        }
+                    }
+                });
+
+                downloadTasks.put(fileName, downloadTask);
+
+                Future<?> uploadTask = UPLOAD_EXECUTOR.submit(() -> {
+                    int maxRetries = 5;
+                    int retryCount = 0;
+                    while (retryCount < maxRetries) {
+                        try (SftpClient destSftpClient = createSftpClient(sftp_host, sftp_username, sftp_password, sftp_port)) {
+                            downloadTask.get(1, TimeUnit.HOURS);
+                            uploadFile(destSftpClient, localFilePath, remoteFilePath);
+                            break;
+                        } catch (Exception e) {
+                            retryCount++;
+                            if (retryCount < maxRetries) {
+                                long retryInterval = getRetryInterval(retryCount);
+                                LOGGER.warn("[OCDCollectionService][handleFileSync]Failed to upload file. Retrying ({}/{}) in {} ms",
+                                    retryCount, maxRetries, retryInterval);
+                                try {
+                                    Thread.sleep(retryInterval);
+                                } catch (InterruptedException ex) {
+                                    throw new RuntimeException(ex);
+                                }
+                            } else {
+                                LOGGER.error("[OCDCollectionService][handleFileSync]Exception in upload task: {}", e.getMessage());
+                            }
+                        }
+                    }
+                });
+                uploadTasks.put(fileName, uploadTask);
+            }
+            waitForTasksCompletion(downloadTasks.values());
+            waitForTasksCompletion(uploadTasks.values());
+            return true;
         }
     }
 ```
