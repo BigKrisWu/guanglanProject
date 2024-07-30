@@ -1,0 +1,47 @@
+public class QuerySegmentsServiceImpl implements IQuerySegmentsService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(QuerySegmentsServiceImpl.class);
+
+    private final CountDownLatch latch;
+
+    public QuerySegmentsServiceImpl(int circuitLength) {
+        latch = new CountDownLatch(circuitLength);
+    }
+
+    ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(100, 500, 10, TimeUnit.SECONDS, new LinkedBlockingDeque<>(10000));
+
+    @Override
+    public List<JSONObject> getCircuitInfos(String[] circuitInfos) {
+        // 数组判空
+        if (circuitInfos == null || circuitInfos.length <= 0) {
+            return new ArrayList<>();
+        }
+
+        List<JSONObject> circuitInfoList = Collections.synchronizedList(new ArrayList<>());
+        for (int i = 0; i < circuitInfos.length; i++) {
+
+            if (!StringUtils.isEmpty(circuitInfos[i])) {
+                String circuitInfo = circuitInfos[i];
+                threadPoolExecutor.submit(new Thread(() -> getCircuitInfo(circuitInfo, circuitInfoList), circuitInfo));
+            }
+        }
+        try {
+            latch.await(60,TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            LOGGER.error("query optical circuit link segments interruptedException.");
+        }
+        threadPoolExecutor.shutdown();
+        return circuitInfoList;
+    }
+
+    public List<JSONObject> getCircuitInfo(String circuitInfo, List<JSONObject> circuitInfoList) {
+        // call app service
+        try {
+            JSONObject segmentJson = ServiceUtil.getSegmentList(circuitInfo);
+            circuitInfoList.add(segmentJson);
+            return circuitInfoList;
+        } finally {
+            latch.countDown();
+        }
+    }
+}
