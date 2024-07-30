@@ -1,3 +1,8 @@
+我需要你对下面这个Java代码进行调整，要求要解决两个问题
+1、Return value of java.util.concurrent.CountDownLatch.await(long, TimeUnit) ignored in com.huawei.fiber.service.impl.QuerySegmentsServiceImpl.getCircuitInfos(String[])
+2、非SpringIOC纳管的对象不能存在成员变量线程池，防止对象创建时，线程不可控
+
+```
 public class QuerySegmentsServiceImpl implements IQuerySegmentsService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(QuerySegmentsServiceImpl.class);
@@ -45,3 +50,4 @@ public class QuerySegmentsServiceImpl implements IQuerySegmentsService {
         }
     }
 }
+```
