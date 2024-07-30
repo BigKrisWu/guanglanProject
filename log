@@ -1,48 +1,52 @@
-检查远程目录下map.get("src")的所有文件与之前的文件比较，如果文件名一致说明预处理文件没有更新，则直接跳过预处理逻辑，并提示"预处理文件未更新，不做处理"，
-否则执行预处理逻辑。
 
-在synchronizeFiles方法中，handFileSync方法执行完之后就应该去比较了，返回一个boolean类型方法，根据TRUE和FALSE来确定是否要执行预处理逻辑。
+下面的Java方法要求不改变原有逻辑的情况下进行调整，要求正确移除临时文件 Files.delete(path);
+正确示例：
+File file = null;
+try {
+    file = File.createTempFile(prefix, suffix);
+    ......
+} finally {
+    if (file != null) {
+        if (!file.delete()) {
+            logger.info("file delete is error, filename is {}", file.getName());
+        }
+    }
+}
+错误示例：
+File file = null;
+try {
+    file = File.createTempFile(prefix, suffix);
+    ......
+} finally {
+    if (checkFileNotExists()) {
+        throw new CollectException(CHECK_FILE_COMPLETE_FAILED);
+    }
+    if (file != null) {
+        if (!file.delete()) {
+            logger.info("file delete is error, filename is {}", file.getName());
+        }
+    }
+}
 
-在handleFileSync方法中 Set<String> filesToUpdate = determineFilesToUpdate(destSftp, srcFiles, destFiles);拿到了所有的待更新的文件，但是需要先过滤出processList中的文件，
-拿过滤后的文件再和currentFiles集合中的文件比较。
-
-
-执行isPreprocessingRequired方法时，第一次不需要filteredFiles和currentFiles比较，因为debug发现第一次执行时，获取到的这两个集合中的文件相同（特殊）。
-所以!filteredFiles.equals(currentFiles);会返回FALSE，从而不执行后续的预处理任务(第一次肯定要执行预处理任务)。如果filteredFiles集合中的文件还是没有更新，那么再次比较时跟
-currentFiles集合中的文件一致，这时!filteredFiles.equals(currentFiles);返回FALSE是正确的。
-
-写一个方法只保留文件名 
-之前：/opt/cir_data/zk/20240606/files/mod-1742848231-1061242904_D_RNT_IRM_IV_CIRCUITASSIGN_D_20240120000000.csv
-之后：mod-1742848231-1061242904_D_RNT_IRM_IV_CIRCUITASSIGN_D_20240120000000.csv
-
-
-
-"mod-1742848231-217837505_D_RNT_IRM_IV_OPTICALCABLE_D_20240120000000.csv"
-"mod-1742848231-1500070657_D_RLC_IRM_IV_STRONGHOLD_D_20240120000000.csv"
-"mod-1742848231-555304459_D_RNT_IRM_IV_CABLELAYING_D_20240119000000.csv"
-"59630c81b86a4448a73b4d55ff43c606_D_RE_BA_TRAN_SEGMENT_D_20240520000000.csv"
-"mod-1742848231-1061242904_D_RNT_IRM_IV_CIRCUITASSIGN_D_20240120000000.csv"
-"mod-1742848231-102268621_D_RNT_IRM_IV_CIRCUITLINK_D_20240114000000.csv"
-"mod-1742848231-1364299637_D_RNT_IRM_IV_OPTCABLESECTION_D_20240120000000.csv"
-"mod-1742848231-1054197333_D_RNT_IRM_IV_OPTICALCIRCUIT_D_20240120000000.csv"
-"mod-1742848231-1014573511_D_RNT_IRM_IV_LOGICALFIBERCIR_D_20240116000000.csv"
-"mod-1742848231-108803878_D_RNT_IRM_IV_JOINT_D_20240120000000.csv"
-"mod-1742848231-1257096133_D_RNT_IRM_IV_OCCP_D_20240120000000.csv"
-"mod-1742848231-732770695_D_RNT_IRM_IV_OTN_D_20240520000000.csv"
-"mod-1742848231-457639100_D_RNT_IRM_IV_FIBER_D_20240119000000.csv"
-
-
-private static final List<String> processList = Arrays.asList("_SEGMENT_", "_STRONGHOLD_", "_CABLELAYING_",
-	"_CIRCUITASSIGN_", "_CIRCUITLINK_", "_FIBER_", "_JOINT_", "_LOGICALFIBERCIR_", "_OCCP_", "_OPTCABLESECTION_",
-	"_OPTICALCABLE_", "_OPTICALCIRCUIT_", "_IRM_IV_OTN_");
-		
-执行isPreprocessingRequired方法中下面这段代码返回的filteredFiles的size=0,文件正常应该都可以匹配到才对，为什么一个都没匹配到？
-Set<String> filteredFiles = extractFileNames(filesUpdateSet).stream()
-	.filter(this::isFileInProcessList)
-	.collect(Collectors.toSet());
-
-
-
-
-你的任务是分析提供的JAVA代码，并提出改进建议以优化其性能。确定可以使代码更高效、更快或更节省资源的地方。
-提供具体的优化建议，并解释这些更改如何提高代码的性能。优化后的代码应该保持与原始代码相同的功能，同时展示出更高的效率。
+```
+public static void clearLocalTempDir() {
+        Path tempDir = UsFileUtils.getFile(LOCALTEMPDIR).toPath();
+        if (!Files.exists(tempDir)) {
+            LOGGER.warn("[OCDCollectionService][clearLocalTempDir]Local temp directory does not exist: {}", LOCALTEMPDIR);
+            return;
+        }
+        LOGGER.warn("[OCDCollectionService][clearLocalTempDir]Starting to clear the temporary directory.");
+        try (Stream<Path> paths = Files.list(tempDir)) {
+            paths.filter(Files::isRegularFile).forEach(path -> {
+                try {
+                    Files.delete(path);
+                } catch (IOException e) {
+                    LOGGER.error("[OCDCollectionService][clearLocalTempDir]Failed to delete file: {}", path);
+                }
+            });
+            LOGGER.warn("Cleared successfully.");
+        } catch (IOException e) {
+            LOGGER.error("[OCDCollectionService][clearLocalTempDir]Error while clearing local temp directory: {}", LOCALTEMPDIR);
+        }
+    }
+```
