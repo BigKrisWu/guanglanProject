@@ -1,53 +1,35 @@
-我需要你对下面这个Java代码进行调整，要求要解决两个问题
-1、Return value of java.util.concurrent.CountDownLatch.await(long, TimeUnit) ignored in com.huawei.fiber.service.impl.QuerySegmentsServiceImpl.getCircuitInfos(String[])
-2、非SpringIOC纳管的对象不能存在成员变量线程池，防止对象创建时，线程不可控
+我需要你对下面这个Java代码片段在不改变原有逻辑的情况下做出调整，
+要求使用在Map的entrySet上的迭代器更高效，可以避免Map.get(key)的查找，主要是对groupMap.keySet()这块的逻辑调整。
 
 ```
-public class QuerySegmentsServiceImpl implements IQuerySegmentsService {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(QuerySegmentsServiceImpl.class);
-
-    private final CountDownLatch latch;
-
-    public QuerySegmentsServiceImpl(int circuitLength) {
-        latch = new CountDownLatch(circuitLength);
+// 对filter分组
+Map<String, List<JSONObject>> groupMap = new HashMap<>();
+String filterConditionConfig = ruleConfig.getFilterConditionConfig();
+JSONArray filterConditionConfigJsonArray = JSON.parseArray(filterConditionConfig);
+for (int i = 0; i < filterConditionConfigJsonArray.size(); i++) {
+    JSONObject jsonObject = filterConditionConfigJsonArray.getJSONObject(i);
+    String key = jsonObject.getString("group");
+    if (groupMap.containsKey(key)) {
+        groupMap.get(key).add(jsonObject);
+    } else {
+        List<JSONObject> list = new ArrayList<>();
+        list.add(jsonObject);
+        groupMap.put(key, list);
     }
-
-    ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(100, 500, 10, TimeUnit.SECONDS, new LinkedBlockingDeque<>(10000));
-
-    @Override
-    public List<JSONObject> getCircuitInfos(String[] circuitInfos) {
-        // 数组判空
-        if (circuitInfos == null || circuitInfos.length <= 0) {
-            return new ArrayList<>();
-        }
-
-        List<JSONObject> circuitInfoList = Collections.synchronizedList(new ArrayList<>());
-        for (int i = 0; i < circuitInfos.length; i++) {
-
-            if (!StringUtils.isEmpty(circuitInfos[i])) {
-                String circuitInfo = circuitInfos[i];
-                threadPoolExecutor.submit(new Thread(() -> getCircuitInfo(circuitInfo, circuitInfoList), circuitInfo));
-            }
-        }
-        try {
-            latch.await(60,TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            LOGGER.error("query optical circuit link segments interruptedException.");
-        }
-        threadPoolExecutor.shutdown();
-        return circuitInfoList;
+}
+for (String key : groupMap.keySet()) {
+    SimpleFilter simpleFilter = new SimpleFilter();
+    List<Condition> conditions = new ArrayList<>();
+    complexFilter.setCompoundOp("OR");
+    for (JSONObject jsonObject : groupMap.get(key)) {
+        String aliasName = jsonObject.getString("alias_name");
+        String field = jsonObject.getString("field");
+        String operationSymbol = jsonObject.getString("operation_symbol");
+        String value = jsonObject.getString("value");
+        conditions.add(new Condition(aliasName, getTypeByOwner(aliasName), field, "", operationSymbol, value));
     }
-
-    public List<JSONObject> getCircuitInfo(String circuitInfo, List<JSONObject> circuitInfoList) {
-        // call app service
-        try {
-            JSONObject segmentJson = ServiceUtil.getSegmentList(circuitInfo);
-            circuitInfoList.add(segmentJson);
-            return circuitInfoList;
-        } finally {
-            latch.countDown();
-        }
-    }
+    simpleFilter.setConditions(conditions);
+    simpleFilter.setCompoundOp("AND");
+    simpleFilters.add(simpleFilter);
 }
 ```
