@@ -2,30 +2,161 @@
 
 下面这是一个sqlite explain，根据输出的内容帮我分析是否需要对sql语句进行优化。如果需要优化则输出优化建议，如果没有优化需要，请直接说没有需要优化。
 ```
-sqlite> explain SELECT time as lastModified,a.ID_UUID as tagStartId,b.AENDPORT_ID_UUID as tagEndId FROM IRM_IV_CONNECTOR_OCCP1_SOURCE as a,IRM_IV_CONNECTORJUMPER_SOURCE as b,current_time WHERE a.ID = b.ZENDPORT_ID and b.AENDPORT_ID != '';
+sqlite> explain SELECT time AS lastModified, replace(a.NAME, 0x0a, '') AS name, a.COUNTY_ID AS countyId, replace(TRANSMISSIONSERVICETYPE, 0x0a, '') AS serviceType, b.NAME AS aEndDeviceName, d.NAME AS aEndSiteName, c.NAME AS zEndDeviceName, e.NAME AS zEndSiteName , a.ACCESSPTNDEVICE AS accessPtnDevice, a.COREPTNDEVICE1 AS corePtnDevice1, a.COREPTNDEVICE2 AS corePtnDevice2, f.NAME AS accessPtnDevicename, g.NAME AS corePtnDevice1name , h.NAME AS corePtnDevice2name, a.ENTITYTYPE_ID AS entityTypeId, a.TRANSMISSIONSERVICETYPE AS transmissionServiceType , CASE  WHEN a.ENTITYTYPE_ID = '30071' THEN 'PTN' WHEN a.ENTITYTYPE_ID = '30027' THEN  CASE  WHEN b.ENTITYTYPE_ID IN ('36207', '36067') OR c.ENTITYTYPE_ID IN ('36207', '36067') THEN 'OTN' WHEN b.ENTITYTYPE_ID = '36056' OR c.ENTITYTYPE_ID = '36056' THEN 'PTN' ELSE 'OTHER' END ELSE 'OTHER' END AS type, a.ID_UUID AS twinId FROM RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE a LEFT JOIN IRM_IV_DEVICE_SOURCE b ON a.AENDDEVICE_ID = b.ID LEFT JOIN IRM_IV_DEVICE_SOURCE c ON a.ZENDDEVICE_ID = c.ID LEFT JOIN RE_BA_SPR_SITE_SOURCE d ON a.AENDSITE_ID = d.ID LEFT JOIN RE_BA_SPR_SITE_SOURCE e ON a.ZENDSITE_ID = e.ID LEFT JOIN IRM_IV_DEVICE_SOURCE f ON a.ACCESSPTNDEVICE = f.ID LEFT JOIN IRM_IV_DEVICE_SOURCE g ON a.COREPTNDEVICE1 = g.ID LEFT JOIN IRM_IV_DEVICE_SOURCE h ON a.COREPTNDEVICE2 = h.ID,current_time;
 addr  opcode         p1    p2    p3    p4             p5  comment      
 ----  -------------  ----  ----  ----  -------------  --  -------------
-0     Init           0     20    0                    0   Start at 20
-1     OpenRead       1     13    0     5              0   root=13 iDb=0; IRM_IV_CONNECTORJUMPER_SOURCE
-2     OpenRead       3     14602916  0     k(3,,,)        2   root=14602916 iDb=0; index_IRM_IV_CONNECTOR_OCCP1_SOURCE_ID_ID_UUID
-3     OpenRead       2     16142865  0     1              0   root=16142865 iDb=0; current_time
-4     Rewind         1     19    0                    0   
-5       Column         1     4     1                    0   r[1]=IRM_IV_CONNECTORJUMPER_SOURCE.AENDPORT_ID
-6       Eq             2     18    1     BINARY-8       82  if r[1]==r[2] goto 18
-7       Column         1     0     3                    0   r[3]=IRM_IV_CONNECTORJUMPER_SOURCE.ZENDPORT_ID
-8       IsNull         3     18    0                    0   if r[3]==NULL goto 18
-9       SeekGE         3     18    3     1              0   key=r[3]
-10        IdxGT          3     18    3     1              0   key=r[3]
-11        Rewind         2     19    0                    0   
-12          Column         2     0     4                    0   r[4]=current_time.time
-13          Column         3     1     5                    0   r[5]=IRM_IV_CONNECTOR_OCCP1_SOURCE.ID_UUID
-14          Column         1     3     6                    0   r[6]=IRM_IV_CONNECTORJUMPER_SOURCE.AENDPORT_ID_UUID
-15          ResultRow      4     3     0                    0   output=r[4..6]
-16        Next           2     12    0                    1   
-17      Next           3     10    0                    0   
-18    Next           1     5     0                    1   
-19    Halt           0     0     0                    0   
-20    Transaction    0     0     76    0              1   usesStmtJournal=0
-21    String8        0     2     0                    0   r[2]=''
-22    Goto           0     1     0                    0   
+0     Init           0     143   0                    0   Start at 143
+1     OpenRead       0     22    0     25             0   root=22 iDb=0; RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE
+2     OpenRead       1     9     0     9              0   root=9 iDb=0; IRM_IV_DEVICE_SOURCE
+3     OpenRead       9     12614484  0     k(3,,,)        2   root=12614484 iDb=0; index_IRM_IV_DEVICE_SOURCE_ID_ID_UUID
+4     OpenRead       2     9     0     9              0   root=9 iDb=0; IRM_IV_DEVICE_SOURCE
+5     OpenRead       10    12614484  0     k(3,,,)        2   root=12614484 iDb=0; index_IRM_IV_DEVICE_SOURCE_ID_ID_UUID
+6     OpenRead       3     35    0     10             0   root=35 iDb=0; RE_BA_SPR_SITE_SOURCE
+7     OpenRead       11    11417362  0     k(2,,)         2   root=11417362 iDb=0; index_RE_BA_SPR_SITE_SOURCE_ID_ID_UUID
+8     OpenRead       4     35    0     10             0   root=35 iDb=0; RE_BA_SPR_SITE_SOURCE
+9     OpenRead       12    11417362  0     k(2,,)         2   root=11417362 iDb=0; index_RE_BA_SPR_SITE_SOURCE_ID_ID_UUID
+10    OpenRead       13    11914762  0     k(3,,,)        2   root=11914762 iDb=0; index_IRM_IV_DEVICE_SOURCE_ID_NAME
+11    OpenRead       14    11914762  0     k(3,,,)        2   root=11914762 iDb=0; index_IRM_IV_DEVICE_SOURCE_ID_NAME
+12    OpenRead       15    11914762  0     k(3,,,)        2   root=11914762 iDb=0; index_IRM_IV_DEVICE_SOURCE_ID_NAME
+13    OpenRead       8     16422874  0     1              0   root=16422874 iDb=0; current_time
+14    Rewind         0     142   0                    0   
+15      Integer        0     1     0                    0   r[1]=0; init LEFT JOIN no-match flag
+16      Column         0     13    2                    0   r[2]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.AENDDEVICE_ID
+17      IsNull         2     137   0                    0   if r[2]==NULL goto 137
+18      SeekGE         9     137   2     1              0   key=r[2]
+19        IdxGT          9     137   2     1              0   key=r[2]
+20        DeferredSeek   9     0     1                    0   Move 1 to 9.rowid if needed
+21        Integer        1     1     0                    0   r[1]=1; record LEFT JOIN hit
+22        Integer        0     3     0                    0   r[3]=0; init LEFT JOIN no-match flag
+23        Column         0     9     4                    0   r[4]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.ZENDDEVICE_ID
+24        IsNull         4     132   0                    0   if r[4]==NULL goto 132
+25        SeekGE         10    132   4     1              0   key=r[4]
+26          IdxGT          10    132   4     1              0   key=r[4]
+27          DeferredSeek   10    0     2                    0   Move 2 to 10.rowid if needed
+28          Integer        1     3     0                    0   r[3]=1; record LEFT JOIN hit
+29          Integer        0     5     0                    0   r[5]=0; init LEFT JOIN no-match flag
+30          Column         0     3     6                    0   r[6]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.AENDSITE_ID
+31          IsNull         6     127   0                    0   if r[6]==NULL goto 127
+32          SeekGE         11    127   6     1              0   key=r[6]
+33            IdxGT          11    127   6     1              0   key=r[6]
+34            DeferredSeek   11    0     3                    0   Move 3 to 11.rowid if needed
+35            Integer        1     5     0                    0   r[5]=1; record LEFT JOIN hit
+36            Integer        0     7     0                    0   r[7]=0; init LEFT JOIN no-match flag
+37            Column         0     0     8                    0   r[8]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.ZENDSITE_ID
+38            IsNull         8     122   0                    0   if r[8]==NULL goto 122
+39            SeekGE         12    122   8     1              0   key=r[8]
+40              IdxGT          12    122   8     1              0   key=r[8]
+41              DeferredSeek   12    0     4                    0   Move 4 to 12.rowid if needed
+42              Integer        1     7     0                    0   r[7]=1; record LEFT JOIN hit
+43              Integer        0     9     0                    0   r[9]=0; init LEFT JOIN no-match flag
+44              Column         0     18    10                   0   r[10]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.ACCESSPTNDEVICE
+45              IsNull         10    118   0                    0   if r[10]==NULL goto 118
+46              SeekGE         13    118   10    1              0   key=r[10]
+47                IdxGT          13    118   10    1              0   key=r[10]
+48                Integer        1     9     0                    0   r[9]=1; record LEFT JOIN hit
+49                Integer        0     11    0                    0   r[11]=0; init LEFT JOIN no-match flag
+50                Column         0     24    12                   0   r[12]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.COREPTNDEVICE1
+51                IsNull         12    114   0                    0   if r[12]==NULL goto 114
+52                SeekGE         14    114   12    1              0   key=r[12]
+53                  IdxGT          14    114   12    1              0   key=r[12]
+54                  Integer        1     11    0                    0   r[11]=1; record LEFT JOIN hit
+55                  Integer        0     13    0                    0   r[13]=0; init LEFT JOIN no-match flag
+56                  Column         0     23    14                   0   r[14]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.COREPTNDEVICE2
+57                  IsNull         14    110   0                    0   if r[14]==NULL goto 110
+58                  SeekGE         15    110   14    1              0   key=r[14]
+59                    IdxGT          15    110   14    1              0   key=r[14]
+60                    Integer        1     13    0                    0   r[13]=1; record LEFT JOIN hit
+61                    Rewind         8     110   0                    0   
+62                      Column         8     0     15                   0   r[15]=current_time.time
+63                      Column         0     16    33                   0   r[33]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.NAME
+64                      Function       6     33    16    replace(3)     0   r[16]=func(r[33..35])
+65                      Column         0     4     17                   0   r[17]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.COUNTY_ID
+66                      Column         0     8     36                   0   r[36]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.TRANSMISSIONSERVICETYPE
+67                      Function       6     36    18    replace(3)     0   r[18]=func(r[36..38])
+68                      Column         1     8     19                   0   r[19]=IRM_IV_DEVICE_SOURCE.NAME
+69                      Column         3     9     20                   0   r[20]=RE_BA_SPR_SITE_SOURCE.NAME
+70                      Column         2     8     21                   0   r[21]=IRM_IV_DEVICE_SOURCE.NAME
+71                      Column         4     9     22                   0   r[22]=RE_BA_SPR_SITE_SOURCE.NAME
+72                      Column         0     18    23                   0   r[23]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.ACCESSPTNDEVICE
+73                      Column         0     24    24                   0   r[24]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.COREPTNDEVICE1
+74                      Column         0     23    25                   0   r[25]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.COREPTNDEVICE2
+75                      Column         13    1     26                   0   r[26]=IRM_IV_DEVICE_SOURCE.NAME
+76                      Column         14    1     27                   0   r[27]=IRM_IV_DEVICE_SOURCE.NAME
+77                      Column         15    1     28                   0   r[28]=IRM_IV_DEVICE_SOURCE.NAME
+78                      Column         0     12    29                   0   r[29]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.ENTITYTYPE_ID
+79                      Column         0     8     30                   0   r[30]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.TRANSMISSIONSERVICETYPE
+80                      Column         0     12    39                   0   r[39]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.ENTITYTYPE_ID
+81                      Ne             40    84    39    BINARY-8       82  if r[39]!=r[40] goto 84
+82                      String8        0     31    0     PTN            0   r[31]='PTN'
+83                      Goto           0     106   0                    0   
+84                      Column         0     12    39                   0   r[39]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.ENTITYTYPE_ID
+85                      Ne             41    105   39    BINARY-8       82  if r[39]!=r[41] goto 105
+86                      Noop           0     0     0                    0   begin IN expr
+87                      Column         1     0     39                   0   r[39]=IRM_IV_DEVICE_SOURCE.ENTITYTYPE_ID
+88                      Eq             39    90    42    BINARY-8       66  if r[42]==r[39] goto 90
+89                      Ne             39    91    43    BINARY-8       82  if r[43]!=r[39] goto 91; end IN expr
+90                      Goto           0     95    0                    0   
+91                      Noop           0     0     0                    0   begin IN expr
+92                      Column         2     0     44                   0   r[44]=IRM_IV_DEVICE_SOURCE.ENTITYTYPE_ID
+93                      Eq             44    95    42    BINARY-8       66  if r[42]==r[44] goto 95
+94                      Ne             44    97    43    BINARY-8       82  if r[43]!=r[44] goto 97; end IN expr
+95                      String8        0     31    0     OTN            0   r[31]='OTN'
+96                      Goto           0     104   0                    0   
+97                      Column         1     0     45                   0   r[45]=IRM_IV_DEVICE_SOURCE.ENTITYTYPE_ID
+98                      Eq             46    101   45    BINARY-8       66  if r[45]==r[46] goto 101
+99                      Column         2     0     45                   0   r[45]=IRM_IV_DEVICE_SOURCE.ENTITYTYPE_ID
+100                     Ne             46    103   45    BINARY-8       82  if r[45]!=r[46] goto 103
+101                     String8        0     31    0     PTN            0   r[31]='PTN'
+102                     Goto           0     104   0                    0   
+103                     String8        0     31    0     OTHER          0   r[31]='OTHER'
+104                     Goto           0     106   0                    0   
+105                     String8        0     31    0     OTHER          0   r[31]='OTHER'
+106                     Column         0     5     32                   0   r[32]=RE_BA_NRE_TRAN_PTNACCESSCIR_SOURCE.ID_UUID
+107                     ResultRow      15    18    0                    0   output=r[15..32]
+108                   Next           8     62    0                    1   
+109                 Next           15    59    0                    0   
+110                 IfPos          13    113   0                    0   if r[13]>0 then r[13]-=0, goto 113
+111                 NullRow        15    0     0                    0   
+112                 Goto           0     60    0                    0   
+113               Next           14    53    0                    0   
+114               IfPos          11    117   0                    0   if r[11]>0 then r[11]-=0, goto 117
+115               NullRow        14    0     0                    0   
+116               Goto           0     54    0                    0   
+117             Next           13    47    0                    0   
+118             IfPos          9     121   0                    0   if r[9]>0 then r[9]-=0, goto 121
+119             NullRow        13    0     0                    0   
+120             Goto           0     48    0                    0   
+121           Next           12    40    1                    0   
+122           IfPos          7     126   0                    0   if r[7]>0 then r[7]-=0, goto 126
+123           NullRow        4     0     0                    0   
+124           NullRow        12    0     0                    0   
+125           Goto           0     42    0                    0   
+126         Next           11    33    1                    0   
+127         IfPos          5     131   0                    0   if r[5]>0 then r[5]-=0, goto 131
+128         NullRow        3     0     0                    0   
+129         NullRow        11    0     0                    0   
+130         Goto           0     35    0                    0   
+131       Next           10    26    0                    0   
+132       IfPos          3     136   0                    0   if r[3]>0 then r[3]-=0, goto 136
+133       NullRow        2     0     0                    0   
+134       NullRow        10    0     0                    0   
+135       Goto           0     28    0                    0   
+136     Next           9     19    0                    0   
+137     IfPos          1     141   0                    0   if r[1]>0 then r[1]-=0, goto 141
+138     NullRow        1     0     0                    0   
+139     NullRow        9     0     0                    0   
+140     Goto           0     21    0                    0   
+141   Next           0     15    0                    1   
+142   Halt           0     0     0                    0   
+143   Transaction    0     0     90    0              1   usesStmtJournal=0
+144   Integer        10    34    0                    0   r[34]=10
+145   String8        0     35    0                    0   r[35]=''
+146   Integer        10    37    0                    0   r[37]=10
+147   String8        0     38    0                    0   r[38]=''
+148   String8        0     40    0     30071          0   r[40]='30071'
+149   String8        0     41    0     30027          0   r[41]='30027'
+150   String8        0     42    0     36207          0   r[42]='36207'
+151   String8        0     43    0     36067          0   r[43]='36067'
+152   String8        0     46    0     36056          0   r[46]='36056'
+153   Goto           0     1     0                    0      
 ```
