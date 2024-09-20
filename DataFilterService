@@ -1,5 +1,5 @@
 
-import com.huawei.baize.security.misc.io.FileSecUtils;
+package com.huawei.fiber.service;
 import com.huawei.fiber.entity.CommonRule;
 import com.huawei.fiber.entity.ConditionModel;
 import com.huawei.fiber.entity.FilterModel;
@@ -21,7 +21,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -42,42 +41,53 @@ import java.util.stream.Stream;
 @Component
 public class DataFilterService {
     private static final Logger LOGGER = LoggerFactory.getLogger(DataFilterService.class);
+
     private static final String SRC_TMP_DIR = "/opt/backup/glcollection/srctemp/";
+
     private static final AtomicInteger ruleStage = new AtomicInteger(0);
 
-
-    public void filterData() throws IOException {
-        LOGGER.info("start to filter c2 data.");
+    public boolean filterData() throws IOException {
+        LOGGER.info("[DataFilterService][filterData]start to filter c2 data.");
         List<RuleModel> ruleModels = ServiceUtil.getC2DataRules();
         ruleModels.sort(Comparator.comparingInt(RuleModel::getNum));
         ruleStage.set(0);
+        boolean flag = true;
         for (RuleModel ruleModel : ruleModels) {
             String primaryTable = ruleModel.getPrimaryTable();
             String combinedTable = ruleModel.getCombinedTable();
-
             if (ruleModel.getNum() == 1) {
                 ruleStage.incrementAndGet();
                 String baselineFile = SRC_TMP_DIR + getOriginalFile(primaryTable);
-                LOGGER.info("start to filter file: {}", baselineFile);
+                LOGGER.info("[DataFilterService][filterData]start to filter file: {}", baselineFile);
                 filterBaselineData(baselineFile, ruleModel.getBaseFilters(), primaryTable);
-                LOGGER.info("finished to filter file: {}", baselineFile);
+                LOGGER.info("[DataFilterService][filterData]finished to filter file: {}", baselineFile);
             } else {
                 ruleStage.incrementAndGet();
                 String combinedFile = SRC_TMP_DIR + getOriginalFile(combinedTable);
-                LOGGER.info("start to filter file: {}", combinedFile);
-                filterCombinedData(SRC_TMP_DIR + primaryTable + ".csv", combinedFile, ruleModel.getCombinedFilters(), ruleModel.getRelationFilters(), combinedTable);
-                LOGGER.info("finished to filter file: {}", combinedFile);
+                if (flag) {
+                    LOGGER.info("[DataFilterService][filterData]start to filter file: {}", combinedFile);
+                    flag &= filterCombinedData(SRC_TMP_DIR + primaryTable + ".csv", combinedFile,
+                        ruleModel.getCombinedFilters(), ruleModel.getRelationFilters(), combinedTable);
+                    LOGGER.info("[DataFilterService][filterData]finished to filter file: {}", combinedFile);
+                }else {
+                    break;
+                }
             }
             deleteMatchingFiles(ruleModel);
+
         }
-        LOGGER.info("finished to filter c2 data.");
+        if (flag) {
+            LOGGER.info("[DataFilterService][filterData]finished to filter c2 data.");
+        }
+        return flag;
     }
 
+
     private String getOriginalFile(String fileName) throws IOException {
-        try (Stream<Path> walked = Files.walk(FileSecUtils.getPath(SRC_TMP_DIR))) {
+        try (Stream<Path> walked = Files.walk(UsFileUtils.getFile(SRC_TMP_DIR).toPath())) {
             Optional<Path> matchingFile = walked.filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().contains(fileName))
-                    .findFirst();
+                .filter(path -> path.getFileName().toString().contains(fileName))
+                .findFirst();
 
             return matchingFile.map(Path::getFileName).map(Path::toString).orElse(null);
         }
@@ -101,7 +111,8 @@ public class DataFilterService {
         writeCSV(resultFilePath, filteredData);
     }
 
-    private void doBaseFilter(List<FilterModel> baseFilters, String[] headers, String[] currentRow, String[] ruleHeaders, String[] row, List<String[]> filteredData) {
+    private void doBaseFilter(List<FilterModel> baseFilters, String[] headers, String[] currentRow,
+        String[] ruleHeaders, String[] row, List<String[]> filteredData) {
         boolean match = baseFilters.stream().allMatch(filter -> {
             int index = ArrayUtils.indexOf(headers, filter.getFilterField());
             if (index >= 0 && index < currentRow.length) {
@@ -124,12 +135,10 @@ public class DataFilterService {
         }
     }
 
-
-    private void filterCombinedData(String baselineResultFile, String combinedFile, List<FilterModel> combinedFilters,
-                                    List<ConditionModel> relationFilters, String resultFileName) {
-        // todo 检查文件是否存在
-        if(!Files.exists(Paths.get(baselineResultFile)) || !Files.exists(Paths.get(combinedFile))){
-            return;
+    private boolean filterCombinedData(String baselineResultFile, String combinedFile,
+        List<FilterModel> combinedFilters, List<ConditionModel> relationFilters, String resultFileName) {
+        if (!Files.exists(UsFileUtils.getFile(baselineResultFile).toPath()) || !Files.exists(UsFileUtils.getFile(combinedFile).toPath())) {
+            return false;
         }
         List<String[]> baselineData = readCSV(baselineResultFile);
         String[] baselineHeaders = baselineData.get(0);
@@ -143,7 +152,8 @@ public class DataFilterService {
             String[] combinedRow;
             HashMap<String, Set<String>> baseAll = getBaseMapByGroup(baselineData, baselineHeaders, groupAll);
             while ((combinedRow = reader.readNext()) != null) {
-                doMultiFilter(groupAll, combinedRow, combinedHeaders, baseAll, baselineData, baselineHeaders, filteredData);
+                doMultiFilter(groupAll, combinedRow, combinedHeaders, baseAll, baselineData, baselineHeaders,
+                    filteredData);
             }
         } catch (Exception e) {
             LOGGER.error("occur error when filter: {}, msg: {}", combinedFile, e.getMessage());
@@ -152,9 +162,12 @@ public class DataFilterService {
         String resultFilePath = SRC_TMP_DIR + resultFileName + ".csv";
         writeCSV(resultFilePath, filteredData);
         LOGGER.info("finished to filter file: {}", combinedFile);
+        return true;
     }
 
-    private void doMultiFilter(HashMap<String, ArrayList<CommonRule>> groupAll, String[] combinedRow, String[] combinedHeaders, HashMap<String, Set<String>> baseAll, List<String[]> baselineData, String[] baselineHeaders, List<String[]> filteredData) {
+    private void doMultiFilter(HashMap<String, ArrayList<CommonRule>> groupAll, String[] combinedRow,
+        String[] combinedHeaders, HashMap<String, Set<String>> baseAll, List<String[]> baselineData,
+        String[] baselineHeaders, List<String[]> filteredData) {
         try {
             // 每条数据去匹配规则 group1(&&) || group2(&&) 碰到一个规则满足就跳到下一条
             for (Map.Entry<String, ArrayList<CommonRule>> entry : groupAll.entrySet()) {
@@ -168,26 +181,34 @@ public class DataFilterService {
 
                 // one group conn
                 if (nowGroupMatch) {
-                    nowGroupMatch = evaluateRelationFilters(groupName, baseAll, combinedRow, combinedHeaders, baselineData, baselineHeaders, relationFiltersNew);
+                    nowGroupMatch = evaluateRelationFilters(groupName, baseAll, combinedRow, combinedHeaders,
+                        baselineData, baselineHeaders, relationFiltersNew);
                 }
 
-                if (nowGroupMatch) {
-                    String[] filteredRow = new String[combinedHeaders.length];
-                    for (int j = 0; j < combinedHeaders.length; j++) {
-                        filteredRow[j] = combinedRow[j];
-                    }
-                    filteredData.add(filteredRow);
+                if (doExtract(combinedRow, combinedHeaders, filteredData, nowGroupMatch)) {
                     break;
                 }
-
-
             }
         } catch (Exception e) {
             LOGGER.warn("skip invalid data: {}", e.getMessage());
         }
     }
 
-    private HashMap<String, Set<String>> getBaseMapByGroup(List<String[]> baselineData, String[] baseHeader, HashMap<String, ArrayList<CommonRule>> groupAll) {
+    private static boolean doExtract(String[] combinedRow, String[] combinedHeaders, List<String[]> filteredData,
+        boolean nowGroupMatch) {
+        if (nowGroupMatch) {
+            String[] filteredRow = new String[combinedHeaders.length];
+            for (int j = 0; j < combinedHeaders.length; j++) {
+                filteredRow[j] = combinedRow[j];
+            }
+            filteredData.add(filteredRow);
+            return true;
+        }
+        return false;
+    }
+
+    private HashMap<String, Set<String>> getBaseMapByGroup(List<String[]> baselineData, String[] baseHeader,
+        HashMap<String, ArrayList<CommonRule>> groupAll) {
         HashMap<String, Set<String>> res = new HashMap<>();
         for (Map.Entry<String, ArrayList<CommonRule>> entry : groupAll.entrySet()) {
             String groupName = entry.getKey();
@@ -195,8 +216,14 @@ public class DataFilterService {
             List<ConditionModel> relationFiltersNew = getRelationRule(ruleList);
             for (ConditionModel cm : relationFiltersNew) {
                 int baseIndex = ArrayUtils.indexOf(baseHeader, cm.getBaseField());
-                Set<String> collected = baselineData.stream().map(strings -> baseIndex < strings.length ? strings[baseIndex].trim().replaceAll("^\"|\"$", "") : "").collect(Collectors.toSet());
-                Set<String> standardBasedValue = collected.stream().map(this::standardFromID).collect(Collectors.toSet());
+                Set<String> collected = baselineData.stream()
+                    .map(strings -> baseIndex < strings.length
+                        ? strings[baseIndex].trim().replaceAll("^\"|\"$", "")
+                        : "")
+                    .collect(Collectors.toSet());
+                Set<String> standardBasedValue = collected.stream()
+                    .map(this::standardFromID)
+                    .collect(Collectors.toSet());
                 String key = groupName + "-" + cm.getBaseField();
                 if (!res.containsKey(key)) {
                     res.put(key, standardBasedValue);
@@ -226,7 +253,8 @@ public class DataFilterService {
         return filterModels;
     }
 
-    private HashMap<String, ArrayList<CommonRule>> getGroupMap(List<FilterModel> combinedFilters, List<ConditionModel> relationFilters) {
+    private HashMap<String, ArrayList<CommonRule>> getGroupMap(List<FilterModel> combinedFilters,
+        List<ConditionModel> relationFilters) {
         HashMap<String, ArrayList<CommonRule>> res = new HashMap<>();
         for (FilterModel fm : combinedFilters) {
             String groupName = fm.getGroupName();
@@ -259,10 +287,9 @@ public class DataFilterService {
         return true;
     }
 
-    private boolean evaluateRelationFilters(String group, HashMap<String, Set<String>> baseAll,
-                                            String[] combinedRow, String[] combinedHeaders,
-                                            List<String[]> baselineData, String[] baselineHeaders,
-                                            List<ConditionModel> relationFilters) {
+    private boolean evaluateRelationFilters(String group, HashMap<String, Set<String>> baseAll, String[] combinedRow,
+        String[] combinedHeaders, List<String[]> baselineData, String[] baselineHeaders,
+        List<ConditionModel> relationFilters) {
         if (relationFilters.isEmpty()) {
             return true;
         }
@@ -271,7 +298,8 @@ public class DataFilterService {
             int combinedIndex = ArrayUtils.indexOf(combinedHeaders, relationFilter.getCombinedField());
             int baselineIndex = ArrayUtils.indexOf(baselineHeaders, relationFilter.getBaseField());
             String combinedValue = combinedRow[combinedIndex];
-            if (!evaluateConnCondition(baseAll.get(group + "-" + relationFilter.getBaseField()), relationFilter.getOperator(), combinedValue)) {
+            if (!evaluateConnCondition(baseAll.get(group + "-" + relationFilter.getBaseField()),
+                relationFilter.getOperator(), combinedValue)) {
                 return false;
             }
         }
@@ -304,24 +332,32 @@ public class DataFilterService {
         return id.replaceAll("\\.\\d+$", "");
     }
 
-    private void deleteMatchingFiles(RuleModel ruleModel) throws IOException {
-        String tableName = StringUtils.isNotBlank(ruleModel.getCombinedTable()) ? ruleModel.getCombinedTable() : ruleModel.getPrimaryTable();
-        try (Stream<Path> paths = Files.walk(FileSecUtils.getPath(SRC_TMP_DIR))) {
+    private void deleteMatchingFiles(RuleModel ruleModel) {
+        String tableName = StringUtils.isNotBlank(ruleModel.getCombinedTable())
+            ? ruleModel.getCombinedTable()
+            : ruleModel.getPrimaryTable();
+        try (Stream<Path> paths = Files.walk(UsFileUtils.getFile(SRC_TMP_DIR).toPath())) {
             paths.filter(Files::isRegularFile)
                 .filter(path -> path.getFileName().toString().contains(tableName))
                 .filter(path -> !path.getFileName().toString().startsWith(tableName))
-                .forEach(path -> {
-                    File file = path.toFile();
-                    try {
-                        if (file.delete()) {
-                            LOGGER.warn("Deleted file: {}", file.getCanonicalPath());
-                        } else {
-                            LOGGER.warn("Failed to delete file: {}", file.getCanonicalPath());
-                        }
-                    } catch (IOException e) {
-                        LOGGER.error("Error occurred while delete file {}", e.getMessage());
-                    }
-                });
+                .forEach(DataFilterService::deleteFile);
+        } catch (IOException e) {
+            LOGGER.error("Failed to delete file error {}", e.getMessage());
+        }
+    }
+
+    private static void deleteFile(Path path) {
+        File file = null;
+        try {
+            file = path.toFile();
+        } finally {
+            if (file != null) {
+                if (file.delete()) {
+                    LOGGER.warn("Deleted file: {}", path.toAbsolutePath());
+                } else {
+                    LOGGER.warn("Failed to delete file: {}", path.toAbsolutePath());
+                }
+            }
         }
     }
 
@@ -341,6 +377,4 @@ public class DataFilterService {
             LOGGER.error("Error occurred while writing result CSV file {}", e.getMessage());
         }
     }
-
-
 }
