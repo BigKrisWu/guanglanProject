@@ -1,16 +1,6 @@
 
-package com.huawei.fiber.entity;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-
-/**
- * 统一规则模型
- *
- * @since 2024/5/18
- */
+//统一规则模型
 @NoArgsConstructor
 @AllArgsConstructor
 @Getter
@@ -22,7 +12,58 @@ public class CommonRule {
     private String combinedField;
     private String ruleId;
     private String filterFlag;
-    // filter
     private String filterField;
     private String filterValue;
+}
+
+//关联模型
+@NoArgsConstructor
+@AllArgsConstructor
+@Getter
+@Setter
+public class ConditionModel extends CommonRule {
+    private String groupName;
+    private String baseField;
+    private String operator;
+    private String combinedField;
+    private String ruleId;
+    private String filterFlag;
+}
+
+//过滤模型
+@NoArgsConstructor
+@AllArgsConstructor
+@Getter
+@Setter
+public class FilterModel extends CommonRule {
+    private String groupName;
+    private String filterField;
+    private String operator;
+    private String filterValue;
+    private String ruleId;
+    private String filterFlag;
+    private boolean isBaselineFilter;
+}
+
+
+//规则模型
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+public class RuleModel {
+    private int num;
+    @JsonProperty("rule_name")
+    private String ruleName;
+    @JsonProperty("primary_table")
+    private String primaryTable;
+
+    @JsonProperty("combined_table")
+    private String combinedTable;
+    @JsonProperty("base_filter")
+    private List<FilterModel> baseFilters;
+
+    @JsonProperty("combined_filter")
+    private List<FilterModel> combinedFilters;
+    @JsonProperty("relation_filter")
+    private List<ConditionModel> relationFilters;
 }
