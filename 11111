@@ -1,6 +1,27 @@
 现在需要在组合过滤中增加基线表过滤条件使之能与关联表过滤条件和关联条件结合起来，要求还是同一分组的条件为"且"的关系，不同分组为“或”的关系。
 具体可以在doMultiFilter方法中进行修改并生效（目前组合过滤对基线表过滤条件不生效）。结果只输出新增修改的内容即可，不需要全部输出内容。
 
+下面是一个配置规则例子，用于验证我们更新后的处理逻辑，要求根据基线表、关联表、关联条件按照同一分组的条件为"且"的关系，不同分组为“或”的关系应用到一起。
+如果当前逻辑支持这种配置规则，请直接告诉我"支持"。如果不满足则调整直到满足此规则。
+示例：
+基线表 D_RNT_IRM_IV_OTN_D
+关联表 D_RNT_IRM_IV_OPTICALCIRCUIT_D
+
+基线表过滤条件：
+编号	分组	字段			操作符	值
+1		B		EQUIPLEVEL		=		5
+
+关联表过滤条件：
+编号	分组	字段			操作符	值
+1		A		CIRCUITLEVEL	=		6
+
+关联条件:
+编号	分组	基线表字段	操作符		关联表字段	
+1		A		ID			contains	AENDDEVICE_ID
+2		A		ID			contains	ZENDDEVICE_ID
+3		B		ID			contains	AENDDEVICE_ID
+4		B		ID			contains	ZENDDEVICE_ID
+
 
 processList是一个需要推送的文件名集合，需要对todo进行修改，不能用"D_"，而是用processList集合里的文件名推送。
 
