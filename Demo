@@ -36,3 +36,23 @@
 需要注意：
 1、同一个文件在下载完成才可以执行上传操作。
 2、多个下载和上传sftp客户端都是独立的。
+
+在不改变formatSql功能的前提下，将StringBuffer换成StringBuilder，同时result被引用的地方都需要修改，因为参数类型改变了可能会不适用。
+```
+    public static String formatSql(String sql) {
+        List<String> keywords = Arrays.asList("return", "match", "distinct", "desc", "order by", "skip", "limit");
+        String keywordPattern = keywords.stream()
+                .map(keyword -> "\\b" + java.util.regex.Pattern.quote(keyword.toLowerCase(Locale.ENGLISH)) + "\\b") // 添加单词边界，并转义关键字中的特殊字符
+                .collect(Collectors.joining("|"));
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(?i)" + keywordPattern);
+        Matcher matcher = pattern.matcher(sql);
+        StringBuffer result = new StringBuffer();
+        while (matcher.find()) {
+            matcher.appendReplacement(result, matcher.group().toUpperCase(Locale.ENGLISH));
+        }
+        matcher.appendTail(result);
+
+
+        return result.toString().replace('"', '\'');
+    }
+```
