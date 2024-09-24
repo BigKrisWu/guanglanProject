@@ -1,4 +1,5 @@
 要求仔细理解原始代码逻辑并在不改变原始逻辑的情况下对其进行优化以满足性能要求。
+提示：只输出优化的部分即可，省略不必要的解释，优化部分重点解释。
 ```
 import com.huawei.fiber.entity.CommonRule;
 import com.huawei.fiber.entity.ConditionModel;
