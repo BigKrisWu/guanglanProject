@@ -1,20 +1,22 @@
-要求仔细理解原始代码逻辑并在不改变原始逻辑的情况下对其进行优化以满足性能要求。
-提示：只输出优化的部分即可，省略不必要的解释，优化部分重点解释。
-```
+你是一位资深Java开发工程师，擅长优化和编写代码。先理解这个Java代码中的逻辑，在不改变原有业务逻辑的情况下，对其优化性能。主要优化的方向在于所有组下的规则关联部分。
+
 import com.huawei.fiber.entity.CommonRule;
 import com.huawei.fiber.entity.ConditionModel;
 import com.huawei.fiber.entity.FilterModel;
 import com.huawei.fiber.entity.RuleModel;
 import com.huawei.fiber.utils.ServiceUtil;
 import com.huawei.us.common.file.UsFileUtils;
+
 import com.opencsv.CSVReader;
 import com.opencsv.CSVWriter;
 import com.opencsv.exceptions.CsvException;
+
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,7 +33,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-
+/**
+ * c2数据统一
+ *
+ * @since 2024/5/31
+ */
 @Component
 public class DataFilterService {
     private static final Logger LOGGER = LoggerFactory.getLogger(DataFilterService.class);
@@ -61,21 +67,22 @@ public class DataFilterService {
                 if (flag) {
                     LOGGER.info("[DataFilterService][filterData]start to filter file: {}", combinedFile);
                     flag &= filterCombinedData(SRC_TMP_DIR + primaryTable + ".csv", combinedFile,
-                        ruleModel.getBaseFilters(), ruleModel.getCombinedFilters(),  ruleModel.getRelationFilters(), combinedTable);
+                        ruleModel.getBaseFilters(), ruleModel.getCombinedFilters(), ruleModel.getRelationFilters(),
+                        combinedTable);
                     LOGGER.info("[DataFilterService][filterData]finished to filter file: {}", combinedFile);
-                }else {
+                } else {
                     break;
                 }
             }
+        }
+        for (RuleModel ruleModel : ruleModels) {
             deleteMatchingFiles(ruleModel);
-
         }
         if (flag) {
             LOGGER.info("[DataFilterService][filterData]finished to filter c2 data.");
         }
         return flag;
     }
-
 
     private String getOriginalFile(String fileName) throws IOException {
         try (Stream<Path> walked = Files.walk(UsFileUtils.getFile(SRC_TMP_DIR).toPath())) {
@@ -131,7 +138,8 @@ public class DataFilterService {
 
     private boolean filterCombinedData(String baselineResultFile, String combinedFile, List<FilterModel> baseFilter,
         List<FilterModel> combinedFilters, List<ConditionModel> relationFilters, String resultFileName) {
-        if (!Files.exists(UsFileUtils.getFile(baselineResultFile).toPath()) || !Files.exists(UsFileUtils.getFile(combinedFile).toPath())) {
+        if (!Files.exists(UsFileUtils.getFile(baselineResultFile).toPath()) || !Files.exists(
+            UsFileUtils.getFile(combinedFile).toPath())) {
             return false;
         }
         List<String[]> baselineData = readCSV(baselineResultFile);
@@ -144,9 +152,17 @@ public class DataFilterService {
             String[] combinedHeaders = reader.readNext();
             filteredData.add(combinedHeaders);
             String[] combinedRow;
+            HashMap<String, Set<String>> baseMap = new HashMap<>();
+            for (Map.Entry<String, ArrayList<CommonRule>> entry : groupAll.entrySet()) {
+                ArrayList<CommonRule> ruleList = entry.getValue();
+                List<FilterModel> baseFiltersNew = getFilterRule(ruleList, "base");
+                baseMap.putAll(
+                    getBaseMapByGroup(filterBaseArray(baselineData, baseFiltersNew), baselineData.get(0), groupAll));
+            }
+            HashMap<String, Set<String>> baseAllMap = getBaseMapByGroup(baselineData, baselineData.get(0), groupAll);
             while ((combinedRow = reader.readNext()) != null) {
-                doMultiFilter(groupAll, combinedRow, combinedHeaders, baselineData, baselineHeaders,
-                    filteredData);
+                doMultiFilter(groupAll, baseMap, baseAllMap, combinedRow, combinedHeaders, baselineData,
+                    baselineHeaders, filteredData);
             }
         } catch (Exception e) {
             LOGGER.error("occur error when filter: {}, msg: {}", combinedFile, e.getMessage());
@@ -158,9 +174,9 @@ public class DataFilterService {
         return true;
     }
 
-    private void doMultiFilter(HashMap<String, ArrayList<CommonRule>> groupAll, String[] combinedRow,
-        String[] combinedHeaders, List<String[]> baselineData,
-        String[] baselineHeaders, List<String[]> filteredData) {
+    private void doMultiFilter(HashMap<String, ArrayList<CommonRule>> groupAll, HashMap<String, Set<String>> baseMap,
+        HashMap<String, Set<String>> baseAllMap, String[] combinedRow, String[] combinedHeaders,
+        List<String[]> baselineData, String[] baselineHeaders, List<String[]> filteredData) {
         try {
             // 每条数据去匹配规则 group1(&&) || group2(&&) 碰到一个规则满足就跳到下一条
             for (Map.Entry<String, ArrayList<CommonRule>> entry : groupAll.entrySet()) {
@@ -169,22 +185,19 @@ public class DataFilterService {
                 List<FilterModel> combinedFiltersNew = getFilterRule(ruleList, "combined");
                 List<FilterModel> baseFiltersNew = getFilterRule(ruleList, "base");
                 List<ConditionModel> relationFiltersNew = getRelationRule(ruleList);
-
                 // one group filter
                 boolean nowGroupMatch = evaluateFilters(combinedRow, combinedHeaders, combinedFiltersNew);
-
                 // one group conn
                 if (nowGroupMatch) {
-                    nowGroupMatch = evaluateRelationFilters(groupName, getBaseMapByGroup(filterBaseArray(baselineData, baseFiltersNew), baselineData.get(0), groupAll), combinedRow, combinedHeaders,
-                            baselineData, baselineHeaders, relationFiltersNew);
+                    nowGroupMatch = evaluateRelationFilters(groupName, baseFiltersNew.isEmpty() ? baseAllMap : baseMap,
+                        combinedRow, combinedHeaders, baselineHeaders, relationFiltersNew);
                 }
-
                 if (doExtract(combinedRow, combinedHeaders, filteredData, nowGroupMatch)) {
                     break;
                 }
             }
-        } catch (Exception e) {
-            LOGGER.warn("skip invalid data: {}", e.getMessage());
+        } catch (Exception ignored) {
+            LOGGER.error("skip error data.");
         }
     }
 
@@ -195,19 +208,24 @@ public class DataFilterService {
         List<String[]> filteredData = new ArrayList<>();
         String[] baselineHeaders = baselineData.get(0);
         for (String[] baselineRow : baselineData) {
-            boolean match = true;
-            for (FilterModel baseFilter : baseFiltersNew) {
-                int index = ArrayUtils.indexOf(baselineHeaders, baseFilter.getFilterField());
-                if (index >= 0 && index < baselineRow.length) {
-                    String value = baselineRow[index];
-                    match &= evaluateCondition(value, baseFilter.getOperator(), baseFilter.getFilterValue());
-                }
-            }
-            if (match) {
-                filteredData.add(baselineRow);
-            }
+            baseFilter(baseFiltersNew, baselineRow, baselineHeaders, filteredData);
         }
         return filteredData;
+    }
+
+    private void baseFilter(List<FilterModel> baseFiltersNew, String[] baselineRow, String[] baselineHeaders,
+        List<String[]> filteredData) {
+        boolean match = true;
+        for (FilterModel baseFilter : baseFiltersNew) {
+            int index = ArrayUtils.indexOf(baselineHeaders, baseFilter.getFilterField());
+            if (index >= 0 && index < baselineRow.length) {
+                String value = baselineRow[index];
+                match &= evaluateCondition(value, baseFilter.getOperator(), baseFilter.getFilterValue());
+            }
+        }
+        if (match) {
+            filteredData.add(baselineRow);
+        }
     }
 
     private static boolean doExtract(String[] combinedRow, String[] combinedHeaders, List<String[]> filteredData,
@@ -277,8 +295,8 @@ public class DataFilterService {
         return filterModels;
     }
 
-    private HashMap<String, ArrayList<CommonRule>> getGroupMap(List<FilterModel> baseFilters, List<FilterModel> combinedFilters,
-        List<ConditionModel> relationFilters) {
+    private HashMap<String, ArrayList<CommonRule>> getGroupMap(List<FilterModel> baseFilters,
+        List<FilterModel> combinedFilters, List<ConditionModel> relationFilters) {
         HashMap<String, ArrayList<CommonRule>> res = new HashMap<>();
         for (FilterModel fm : combinedFilters) {
             String groupName = fm.getGroupName();
@@ -319,8 +337,7 @@ public class DataFilterService {
     }
 
     private boolean evaluateRelationFilters(String group, HashMap<String, Set<String>> baseAll, String[] combinedRow,
-        String[] combinedHeaders, List<String[]> baselineData, String[] baselineHeaders,
-        List<ConditionModel> relationFilters) {
+        String[] combinedHeaders, String[] baselineHeaders, List<ConditionModel> relationFilters) {
         if (relationFilters.isEmpty()) {
             return true;
         }
@@ -339,7 +356,6 @@ public class DataFilterService {
 
     private boolean evaluateConnCondition(Set<String> baseValue, String operator, String combinedValue) {
         String value = standardFromID(combinedValue);
-        // contains表达的应该是包含ID，能关联上的意思  页面的=操作符没有作用
         return baseValue.contains(value);
     }
 
@@ -359,6 +375,7 @@ public class DataFilterService {
                 return false;
         }
     }
+
     private String standardFromID(String id) {
         return id.replaceAll("\\.\\d+$", "");
     }
@@ -409,4 +426,3 @@ public class DataFilterService {
         }
     }
 }
-```
