@@ -1,0 +1,148 @@
+configfile.json  定义点边规则
+
+   {
+      "ruleName": "VERTEX_6",
+      "eventType": "ALL",
+      "space": "C3C4_JinHua",
+      "resType": "vertex",
+      "data": [],
+      "rule": [
+        {
+          "ruleSubNo": 10601,
+          "ruleExpr": "groovy/rule-script,CreatePort",
+          "ruleType": "groovy",
+          "sendToDtn": "false",
+          "resName": "v_optical_cable_terminal"
+        },
+        {
+          "ruleSubNo": 10602,
+          "ruleExpr": "SELECT time as lastModified,a.ASSEMBLENAME as name,'' as dn,'' as assembleAbbreviation,a.ID_UUID as twinId from IRM_IV_PORT_SOURCE as a,IRM_IV_DEVICE_SOURCE as b,current_time where a.DEVICE_ID = b.ID",
+          "ruleType": "sql",
+          "sendToDtn": "true",
+          "resName": "v_optical_cable_terminal",
+          "targetColumn": "lastModified,name,dn,assembleAbbreviation,twinId",
+          "primkey": "twinId",
+          "involveFunc": "true",
+          "mandatoryField": "twinId"
+        },
+        {
+          "ruleSubNo": 10603,
+          "ruleExpr": "SELECT time as lastModified,a.assembleName as name,a.dn as dn,a.assembleAbbreviation as assembleAbbreviation,a.twinId as twinId from v_optical_cable_port as a,current_time",
+          "ruleType": "sql",
+          "sendToDtn": "true",
+          "resName": "v_optical_cable_terminal",
+          "targetColumn": "lastModified,name,dn,assembleAbbreviation,twinId",
+          "primkey": "twinId",
+          "involveFunc": "true",
+          "mandatoryField": "twinId"
+        }
+      ]
+    },
+	
+	
+	{
+      "ruleName": "EDGE_1",
+      "eventType": "ALL",
+      "space": "C3C4_JinHua",
+      "resType": "edge",
+      "data": [],
+	  "rule": [
+        {
+          "ruleSubNo": 20137,
+          "ruleExpr": "SELECT time as lastModified,a.ID_UUID as tagStartId,a.AENDDEVICE_ID_UUID as tagEndId FROM IRM_IV_OPTCABLESECTION_SOURCE as a,current_time where a.AENDDEVICE_ID !=''",
+          "ruleType": "sql",
+          "sendToDtn": "true",
+          "resName": "e_connectedTo",
+          "targetColumn": "lastModified,tagStartId,tagEndId",
+          "primkey": "tagStartId,tagEndId",
+          "assoVertex": "v_optical_cable_opticalcablesegment,v_optical_cable_device",
+          "involveFunc": "true",
+          "mandatoryField": "tagStartId,tagEndId"
+        }
+      ]
+    },
+	
+	
+	resource-script-config.json,根据配置去执行脚本文件
+	
+	{
+      "type": "collect-stream",
+      "path": "groovy/collect-stream",
+      "script-file": "StreamCsvDataTransform",
+      "script-type": "groovy",
+      "priority": 0,
+      "params": {
+        "split_configs": [
+          {
+            "regex": "[a-z]*_[a-z0-9-]*_D_RNT_IRM_IV_DEVICE_D_\\d{14}\\..*",
+            "encoding": "UTF-8",
+            "transform": [
+              {
+                "type": "FilterBigItem",
+                "filter": "PREFECTURE_ID",
+                "field": "$PrefectureId"
+              },
+              {
+                "type": "CreateUUID",
+                "origin_fields": "ID,ROOM_ID",
+                "new_fields": "ID_UUID,ROOM_ID_UUID",
+                "fields_prefix": "Device-,EquipmentRoom-"
+              }
+            ]
+          }
+        ]
+      }
+    },
+	
+	
+v_optical_cable_basestation.yaml 转换模板	
+	
+	job:
+  - name: optical_v_optical_cable_basestation
+    source:
+      name: CollectorTunnel
+      type: ProbeConnector
+      params:
+        topic: dtn-access
+        filter: ''
+      dataSchema:
+        data: $.data
+        tenantId: $.tenantId
+        taskId: $.taskId
+        currentPage: $.currentPage
+        endPage: $.endPage
+        resType: $.resType
+        resName: $.resName
+        space: $.space
+        eventType: $.eventType
+    target:
+      - type: Nebula
+        space: probeConnectorCommon
+        resName: v_optical_cable_basestation
+        resType: vertex
+        fieldTransform:
+          vid: generateVid("v_optical_cable_basestation", $.nativeId)
+          name: iif($.name is null,$.nativeId,$.name)
+          countyId: $.countyId
+          serialNumber: $.serialNumber
+          lastModified: toLong($.lastModified)
+      - type: DIMPG
+        resName: OPTICAL_CABLE_BASESTATION
+        resType: Resource
+        params:
+          graphModel: v_optical_cable_basestation
+        fieldTransform:
+          nativeId: $.nativeId
+          name: iif($.name is null,$.nativeId,$.name)
+          COUNTY_ID: $.countyId
+          SERIAL_NUMBER: $.serialNumber
+          business_name: $.space_
+          last_Modified: toLong($.lastModified * 1000)
+	
+	
+	
+	
+	
+	
+	
+	
