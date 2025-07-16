@@ -14,3 +14,5 @@
 3XL环境信息
 nebula8台节点 CPU 670 内存 2600G 总50多台虚拟机
 并发数 每台45，共45*8*1024 每次入nebula大约36万
+
+https://slinka.xmfsub.cc/api/v1/client/subscribe?token=5bbf556b070a12838cb23e4cf1041ff7
